@@ -439,8 +439,8 @@ void svt_av1_predict_intra_block(MacroBlockD* xd, BlockSize bsize, TxSize tx_siz
                                  EbPictureBufferDesc* recon_buffer, int32_t col_off, int32_t row_off, int32_t plane,
                                  Part shape, uint32_t dst_offset_x, uint32_t dst_offset_y, SeqHeader* seq_header_ptr,
                                  EbBitDepth bit_depth) {
-    const int       ss_x        = plane ? 1 : 0;
-    const int       ss_y        = plane ? 1 : 0;
+    const int       ss_x        = plane ? (recon_buffer->color_format == EB_YUV444 ? 0 : 1) : 0;
+    const int       ss_y        = plane ? (recon_buffer->color_format >= EB_YUV422 ? 0 : 1) : 0;
     const BlockSize plane_bsize = get_plane_block_size(bsize, ss_x, ss_y);
     const int       wpx         = block_size_wide[plane_bsize];
     const int       hpx         = block_size_high[plane_bsize];
@@ -571,9 +571,17 @@ EbErrorType svt_av1_intra_prediction(uint8_t hbd_md, ModeDecisionContext* ctx, P
     SVT_FOLD_HBD_MD(hbd_md);
     EbErrorType    return_error   = EB_ErrorNone;
     const TxSize   tx_size        = tx_depth_to_tx_size[cand_bf->cand->block_mi.tx_depth][ctx->blk_geom->bsize];
-    const TxSize   tx_size_chroma = av1_get_max_uv_txsize(ctx->blk_geom->bsize, 1, 1);
+    const uint16_t ss_x           = pcs->scs->subsampling_x;
+    const uint16_t ss_y           = pcs->scs->subsampling_y;
+    const BlockSize bsize_chroma  = get_plane_block_size(ctx->blk_geom->bsize, ss_x, ss_y);
+    // MD predicts the whole block before its UV transform loop. In 4:4:4 a
+    // 64-pixel plane cannot use the 32-pixel UV transform size for this step:
+    // doing so leaves three quarters of the candidate prediction unwritten.
+    const TxSize tx_size_chroma = !ss_x && !ss_y
+        ? tx_depth_to_tx_size[0][ctx->blk_geom->bsize]
+        : av1_get_max_uv_txsize(ctx->blk_geom->bsize, ss_x, ss_y);
     const uint32_t sb_size_luma   = pcs->ppcs->scs->sb_size;
-    const uint32_t sb_size_chroma = pcs->ppcs->scs->sb_size / 2;
+    const uint32_t sb_size_chroma = pcs->ppcs->scs->sb_size >> ss_y;
     const bool     is_16bit       = !!hbd_md;
 
     uint8_t        top_neigh_array[(64 * 2 + 1) << 1];
@@ -593,10 +601,10 @@ EbErrorType svt_av1_intra_prediction(uint8_t hbd_md, ModeDecisionContext* ctx, P
         int                ang         = plane ? cand_bf->cand->block_mi.angle_delta[PLANE_TYPE_UV]
                                                : cand_bf->cand->block_mi.angle_delta[PLANE_TYPE_Y];
         const IntraSize    intra_size  = ang == 0 ? svt_aom_intra_unit[mode] : (IntraSize){2, 2};
-        const int          bwidth      = plane ? ctx->blk_geom->bwidth_uv : ctx->blk_geom->bwidth;
-        const int          bheight     = plane ? ctx->blk_geom->bheight_uv : ctx->blk_geom->bheight;
-        const int          blk_org_x   = plane ? ctx->round_origin_x >> 1 : ctx->blk_org_x;
-        const int          blk_org_y   = plane ? ctx->round_origin_y >> 1 : ctx->blk_org_y;
+        const int          bwidth      = plane ? block_size_wide[bsize_chroma] : ctx->blk_geom->bwidth;
+        const int          bheight     = plane ? block_size_high[bsize_chroma] : ctx->blk_geom->bheight;
+        const int          blk_org_x   = plane ? ctx->chroma_origin_x : ctx->blk_org_x;
+        const int          blk_org_y   = plane ? ctx->chroma_origin_y : ctx->blk_org_y;
         const int          sb_size     = plane ? sb_size_chroma : sb_size_luma;
         NeighborArrayUnit* recon_neigh = plane == 0 ? (is_16bit ? ctx->luma_recon_na_16bit : ctx->recon_neigh_y)
             : plane == 1                            ? (is_16bit ? ctx->cb_recon_na_16bit : ctx->recon_neigh_cb)

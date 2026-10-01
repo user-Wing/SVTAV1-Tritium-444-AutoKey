@@ -7,6 +7,21 @@
 #include "coding_loop.h"
 #include "deblocking_filter.h"
 
+// Development-only A/B switches; production builds use the normal preset policy.
+#ifdef SVT_AV1_444_DEV
+static bool disable_444_cfl(void) {
+    const char *value = getenv("SVT_444_CFL");
+    return value && value[0] == '0';
+}
+static uint8_t get_444_bypass(uint8_t preset_value) {
+    const char *value = getenv("SVT_444_BYPASS");
+    return value ? value[0] == '1' : preset_value;
+}
+#else
+#define disable_444_cfl() false
+#define get_444_bypass(preset_value) (preset_value)
+#endif
+
 #define LOW_8x8_DIST_VAR_TH 25000
 #define HIGH_8x8_DIST_VAR_TH 50000
 
@@ -9181,6 +9196,8 @@ void svt_aom_sig_deriv_mode_decision_config_default(SequenceControlSet* scs, Pic
     } else {
         pcs->cfl_level = 0;
     }
+    if (scs->static_config.encoder_color_format == EB_YUV444 && disable_444_cfl())
+        pcs->cfl_level = 0;
 
     // Set the level for new/nearest/near injection
     if (enc_mode <= ENC_MR) {
@@ -9324,6 +9341,8 @@ void svt_aom_sig_deriv_mode_decision_config_default(SequenceControlSet* scs, Pic
     } else {
         pcs->pic_bypass_encdec = 0;
     }
+    if (scs->static_config.encoder_color_format == EB_YUV444)
+        pcs->pic_bypass_encdec = get_444_bypass(pcs->pic_bypass_encdec);
 
     /*
     set lpd0_level
@@ -9769,6 +9788,8 @@ void svt_aom_sig_deriv_mode_decision_config_rtc(SequenceControlSet* scs, Picture
             pcs->cfl_level = 0;
         }
     }
+    if (scs->static_config.encoder_color_format == EB_YUV444 && disable_444_cfl())
+        pcs->cfl_level = 0;
 
     // Set the level for new/nearest/near injection
     pcs->new_nearest_near_comb_injection = 0;
@@ -9874,6 +9895,8 @@ void svt_aom_sig_deriv_mode_decision_config_rtc(SequenceControlSet* scs, Picture
     } else {
         pcs->pic_bypass_encdec = 0;
     }
+    if (scs->static_config.encoder_color_format == EB_YUV444)
+        pcs->pic_bypass_encdec = get_444_bypass(pcs->pic_bypass_encdec);
 
     /*
     set lpd0_level
@@ -10078,6 +10101,8 @@ void svt_aom_sig_deriv_mode_decision_config_allintra(SequenceControlSet* scs, Pi
     } else {
         pcs->cfl_level = 0;
     }
+    if (scs->static_config.encoder_color_format == EB_YUV444 && disable_444_cfl())
+        pcs->cfl_level = 0;
 
     // Set the level for new/nearest/near injection
     pcs->new_nearest_near_comb_injection = 0;
@@ -10143,6 +10168,8 @@ void svt_aom_sig_deriv_mode_decision_config_allintra(SequenceControlSet* scs, Pi
     } else {
         pcs->pic_bypass_encdec = 0;
     }
+    if (scs->static_config.encoder_color_format == EB_YUV444)
+        pcs->pic_bypass_encdec = get_444_bypass(pcs->pic_bypass_encdec);
 
     /*
     set lpd0_level

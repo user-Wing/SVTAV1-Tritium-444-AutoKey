@@ -177,8 +177,8 @@ typedef struct BlkStruct {
     TxType               tx_type[MAX_TXB_COUNT];
     TxType               tx_type_uv;
     uint16_t             y_has_coeff;
-    uint8_t              u_has_coeff;
-    uint8_t              v_has_coeff;
+    uint16_t             u_has_coeff;
+    uint16_t             v_has_coeff;
     PaletteInfo*         palette_info;
     uint8_t              palette_mem; // status of palette info alloc
     uint8_t              palette_size[2];

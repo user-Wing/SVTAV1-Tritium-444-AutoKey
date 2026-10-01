@@ -496,8 +496,11 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet* scs) {
         return_error = EB_ErrorBadParameter;
     }
 
-    if (config->encoder_color_format != EB_YUV420) {
-        SVT_ERROR("Only support 420 now \n");
+    if (config->encoder_color_format != EB_YUV420 &&
+        !(config->encoder_color_format == EB_YUV444 &&
+          SVT_EFFECTIVE_BIT_DEPTH(config->encoder_bit_depth) == EB_TEN_BIT &&
+          config->profile == HIGH_PROFILE)) {
+        SVT_ERROR("Only 4:2:0 or 10-bit 4:4:4 High Profile input is supported\n");
         return_error = EB_ErrorBadParameter;
     }
 
@@ -838,11 +841,23 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet* scs) {
         SVT_WARN("Non-RTC M10+ are meant for automation tooling usage. Visual artifacts may occur otherwise.\n");
     }
 
-    if (scs->static_config.scene_change_detection) {
-        scs->static_config.scene_change_detection = 0;
-        SVT_WARN(
-            "SVT-AV1 has an integrated mode decision mechanism to handle scene changes and will "
-            "not insert a key frame at scene changes\n");
+    if (config->scene_change_detection > 1) {
+        SVT_ERROR("Scene change detection must be 0 or 1\n");
+        return_error = EB_ErrorBadParameter;
+    }
+    if (config->scene_change_detection &&
+        ((config->pred_structure != RANDOM_ACCESS && config->pred_structure != ALL_INTRA) ||
+         config->pass != ENC_SINGLE_PASS ||
+         config->rate_control_mode != SVT_AV1_RC_MODE_CQP_OR_CRF ||
+         config->intra_refresh_type != SVT_AV1_KF_REFRESH || config->sframe_dist ||
+         config->sframe_posi.sframe_posis)) {
+        SVT_ERROR("Scene-cut key frames require single-pass RA CRF/CQP and closed GOP without switch frames\n");
+        return_error = EB_ErrorBadParameter;
+    }
+    if (config->scene_change_detection && config->intra_period_length >= 0 &&
+        config->scd_min_keyint > (uint32_t)config->intra_period_length + 1) {
+        SVT_ERROR("Scene-cut minimum keyint exceeds maximum keyint\n");
+        return_error = EB_ErrorBadParameter;
     }
     if ((config->tile_columns > 0 || config->tile_rows > 0)) {
         SVT_WARN(
@@ -1068,6 +1083,7 @@ EbErrorType svt_av1_set_default_params(EbSvtAv1EncConfiguration* config_ptr) {
     config_ptr->sframe_dist      = 0;
     config_ptr->sframe_mode      = SFRAME_NEAREST_BASE;
     config_ptr->force_key_frames = 0;
+    config_ptr->scd_min_keyint    = 0;
 
     // Quant Matrices (QM)
     config_ptr->enable_qm           = 0;
@@ -2296,6 +2312,7 @@ EB_API EbErrorType svt_av1_enc_parse_parameter(EbSvtAv1EncConfiguration* config_
         {"fps-denom", &config_struct->frame_rate_denominator},
         {"lookahead", &config_struct->look_ahead_distance},
         {"scd", &config_struct->scene_change_detection},
+        {"scd-min-keyint", &config_struct->scd_min_keyint},
         {"max-qp", &config_struct->max_qp_allowed},
         {"min-qp", &config_struct->min_qp_allowed},
         {"minsection-pct", &config_struct->vbr_min_section_pct},

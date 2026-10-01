@@ -592,17 +592,19 @@ void svt_aom_loop_filter_sb(EbPictureBufferDesc* frame_buffer, //reconpicture,
     FrameHeader*     frm_hdr = &pcs->ppcs->frm_hdr;
     MacroblockdPlane pd[3];
     int32_t          plane;
+    const uint8_t    ss_x = pcs->scs->subsampling_x;
+    const uint8_t    ss_y = pcs->scs->subsampling_y;
 
     pd[0].subsampling_x = 0;
     pd[0].subsampling_y = 0;
     pd[0].plane_type    = PLANE_TYPE_Y;
     pd[0].is_16bit      = frame_buffer->bit_depth > 8;
-    pd[1].subsampling_x = 1;
-    pd[1].subsampling_y = 1;
+    pd[1].subsampling_x = ss_x;
+    pd[1].subsampling_y = ss_y;
     pd[1].plane_type    = PLANE_TYPE_UV;
     pd[1].is_16bit      = frame_buffer->bit_depth > 8;
-    pd[2].subsampling_x = 1;
-    pd[2].subsampling_y = 1;
+    pd[2].subsampling_x = ss_x;
+    pd[2].subsampling_y = ss_y;
     pd[2].plane_type    = PLANE_TYPE_UV;
     pd[2].is_16bit      = frame_buffer->bit_depth > 8;
 

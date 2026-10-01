@@ -597,9 +597,11 @@ typedef struct EbSvtAv1EncConfiguration {
     *  Default is -1. */
     int enable_mfmv;
 
-    /* Flag to enable the scene change detection algorithm.
+    /* Insert closed-GOP key frames at detected scene cuts in single-pass RA
+     * CRF/CQP. intra_period_length is the maximum interval; scd_min_keyint
+     * limits scene-triggered key frames. Ignored for all-intra encoding.
      *
-     * Default is 1. */
+     * Default is 0. */
     uint32_t scene_change_detection;
 
     /* Log 2 Tile Rows and columns . 0 means no tiling,1 means that we split the dimension
@@ -1075,6 +1077,12 @@ typedef struct EbSvtAv1EncConfiguration {
      */
     uint8_t max_allowed_consecutive_frames_skips;
 
+    /** Minimum scene-cut key-frame interval in display frames.
+     * 0 uses one mini-GOP. Explicit key-frame requests override this minimum.
+     * Used only when scene_change_detection is enabled.
+     */
+    uint32_t scd_min_keyint;
+
     // clang-format off
     /* Add 128 Byte Padding to Struct to avoid changing the size of the public configuration struct */
     uint8_t padding[128
@@ -1086,6 +1094,7 @@ typedef struct EbSvtAv1EncConfiguration {
         - sizeof(uint8_t) // max_managed_refs (ref-frame mgmt)
         - sizeof(uint8_t) // max_hierarchical_levels (runtime MG size change)
         - sizeof(uint8_t) // max_allowed_consecutive_frames_skips
+        - sizeof(uint32_t) // scd_min_keyint
     ];
     // clang-format on
 } EbSvtAv1EncConfiguration;

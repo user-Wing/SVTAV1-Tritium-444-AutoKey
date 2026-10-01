@@ -444,6 +444,26 @@ void svt_cfl_luma_subsampling_420_hbd_c(const uint16_t* input, int32_t input_str
     }
 }
 
+/* 4:4:4 CfL keeps luma at full chroma resolution. CfL stores luma AC in Q3,
+ * so each sample is copied with an x8 scale instead of applying 4:2:0 averaging. */
+void svt_cfl_luma_subsampling_444_lbd_c(const uint8_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
+                                        int32_t height) {
+    for (int32_t j = 0; j < height; ++j, input += input_stride, output_q3 += CFL_BUF_LINE) {
+        for (int32_t i = 0; i < width; ++i) {
+            output_q3[i] = (int16_t)input[i] << 3;
+        }
+    }
+}
+
+void svt_cfl_luma_subsampling_444_hbd_c(const uint16_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
+                                        int32_t height) {
+    for (int32_t j = 0; j < height; ++j, input += input_stride, output_q3 += CFL_BUF_LINE) {
+        for (int32_t i = 0; i < width; ++i) {
+            output_q3[i] = (int16_t)(input[i] << 3);
+        }
+    }
+}
+
 /************************************************************************************************
 * svt_subtract_average_c
 * Calculate the DC value by averaging over all sample. Subtract DC value to get AC values In C

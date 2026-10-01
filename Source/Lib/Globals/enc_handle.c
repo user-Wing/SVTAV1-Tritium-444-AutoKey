@@ -1387,7 +1387,7 @@ EB_API EbErrorType svt_av1_enc_init(EbComponentType* svt_enc_component) {
 
     // Per-instance block geometry table allocation
     EB_MALLOC_ARRAY(scs->blk_geom_mds, scs->max_block_cnt);
-    svt_aom_build_blk_geom(scs->svt_aom_geom_idx, scs->blk_geom_mds);
+    svt_aom_build_blk_geom(scs->svt_aom_geom_idx, scs->blk_geom_mds, scs->subsampling_x, scs->subsampling_y);
     /************************************
      * Sequence Control Set
      ************************************/
@@ -4479,7 +4479,8 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     }
 
     // Rate Control
-    scs->static_config.scene_change_detection = config_struct->scene_change_detection;
+    scs->static_config.scene_change_detection = scs->allintra ? 0 : config_struct->scene_change_detection;
+    scs->static_config.scd_min_keyint          = config_struct->scd_min_keyint;
     if (config_struct->lossless && config_struct->rate_control_mode) {
         scs->static_config.rate_control_mode = SVT_AV1_RC_MODE_CQP_OR_CRF;
         SVT_WARN("Switched to CQP mode since lossless coding is enabled\n");

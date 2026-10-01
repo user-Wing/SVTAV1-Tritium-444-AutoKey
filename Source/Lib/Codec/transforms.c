@@ -7452,3 +7452,41 @@ void svt_av1_fwd_txfm2d_4x8_N4_c(int16_t* input, int32_t* output, uint32_t input
     svt_aom_transform_config(transform_type, TX_4X8, &cfg);
     av1_tranform_two_d_core_N4_c(input, input_stride, output, &cfg, intermediate_transform_buffer, bit_depth);
 }
+
+// Keep MD and EncDec chroma coefficient indices in entropy-coding order.
+uint16_t svt_aom_build_444_uv_tx_layout(BlockSize bsize, uint8_t tx_depth, bool is_inter,
+                                         TxSize tx_size_uv, Position uv_org[MAX_TXB_COUNT_UV]) {
+    const int    uv_w       = tx_size_wide[tx_size_uv];
+    const int    uv_h       = tx_size_high[tx_size_uv];
+    const int    block_w    = block_size_wide[bsize];
+    const int    block_h    = block_size_high[bsize];
+    uint16_t     count      = 0;
+
+    if (tx_depth == 0) {
+        const TxSize  luma_tx      = tx_depth_to_tx_size[0][bsize];
+        const int     luma_tx_w    = tx_size_wide[luma_tx];
+        const int     luma_tx_h    = tx_size_high[luma_tx];
+        const uint8_t luma_tx_count = tx_blocks_per_depth[bsize][0];
+
+        for (uint8_t i = 0; i < luma_tx_count; ++i) {
+            const Position base = tx_org[bsize][is_inter][0][i];
+            const int region_w  = MIN(luma_tx_w, block_w - base.x);
+            const int region_h  = MIN(luma_tx_h, block_h - base.y);
+            for (int y = 0; y < region_h; y += uv_h) {
+                for (int x = 0; x < region_w; x += uv_w) {
+                    assert(count < MAX_TXB_COUNT_UV);
+                    uv_org[count++] = (Position){base.x + x, base.y + y};
+                }
+            }
+        }
+    } else {
+        for (int y = 0; y < block_h; y += uv_h) {
+            for (int x = 0; x < block_w; x += uv_w) {
+                assert(count < MAX_TXB_COUNT_UV);
+                uv_org[count++] = (Position){x, y};
+            }
+        }
+    }
+
+    return count;
+}

@@ -4683,6 +4683,12 @@ static void check_window_availability(SequenceControlSet* scs, EncodeContext* en
                            ->end_of_sequence_flag == true) {
                 *window_avail = false;
                 *eos_reached  = true;
+                if (scs->static_config.scene_change_detection) {
+                    // The final picture is still a valid next-frame sample
+                    // for rejecting flashes, even without the full TF window.
+                    pcs->pd_window[2 + window_index] = (PictureParentControlSet*)enc_ctx
+                        ->picture_decision_reorder_queue[entry_index]->ppcs_wrapper->object_ptr;
+                }
                 break;
             } else {
                 pcs->pd_window[2 + window_index] = (PictureParentControlSet*)enc_ctx
@@ -4698,6 +4704,12 @@ static void perform_scene_change_detection(SequenceControlSet* scs, PictureParen
                                            PictureDecisionContext* ctx) {
     if (scs->static_config.scene_change_detection) {
         pcs->scene_change_flag = scene_transition_detector(ctx, scs, (PictureParentControlSet**)pcs->pd_window);
+        const uint32_t min_keyint = scs->static_config.scd_min_keyint
+            ? scs->static_config.scd_min_keyint
+            : (uint32_t)(1 << scs->static_config.hierarchical_levels);
+        if (pcs->picture_number - ctx->last_scd_key_poc < min_keyint) {
+            pcs->scene_change_flag = false;
+        }
 
     } else {
         pcs->scene_change_flag = false;
@@ -5403,7 +5415,8 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
                 pcs->ahd_error = calc_ahd_pd(scs, pcs, ctx);
             }
             // If the relevant frames are available, perform scene change detection
-            if (window_avail == true && queue_entry_ptr->picture_number > 0) {
+            if ((window_avail || (scs->static_config.scene_change_detection && eos_reached && pcs->pd_window[2])) &&
+                queue_entry_ptr->picture_number > 0) {
                 perform_scene_change_detection(scs, pcs, ctx);
             }
         }
@@ -5432,13 +5445,22 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
 
         release_prev_picture_from_reorder_queue(enc_ctx);
 
+        // In scene-cut mode keyint is a maximum, measured from the accepted
+        // key frame in display order, before mini-GOP assignment.
+        if (scs->static_config.scene_change_detection &&
+            scs->static_config.intra_period_length >= 0 &&
+            pcs->picture_number - ctx->last_scd_key_poc >=
+                (uint32_t)scs->static_config.intra_period_length + 1) {
+            pcs->idr_flag = true;
+        }
+
         // If the Intra period length is 0, then introduce an intra for every picture
         if (allintra) {
             pcs->idr_flag = true;
             pcs->cra_flag = false;
         }
         // If an #IntraPeriodLength has passed since the last Intra, then introduce a CRA or IDR based on Intra Refresh type
-        else if (scs->static_config.intra_period_length != -1) {
+        else if (!scs->static_config.scene_change_detection && scs->static_config.intra_period_length != -1) {
             pcs->cra_flag = (scs->static_config.intra_refresh_type != SVT_AV1_FWDKF_REFRESH) ? pcs->cra_flag
                 : ((enc_ctx->intra_period_position == (uint32_t)scs->static_config.intra_period_length) ||
                    (pcs->scene_change_flag == true))
@@ -5466,6 +5488,9 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
         }
         enc_ctx->pre_assignment_buffer_eos_flag = (pcs->end_of_sequence_flag) ? (uint32_t)true
                                                                               : enc_ctx->pre_assignment_buffer_eos_flag;
+        if (scs->static_config.scene_change_detection && pcs->idr_flag) {
+            ctx->last_scd_key_poc = pcs->picture_number;
+        }
 
         // Histogram data to be used at the next input (N + 1)
         // TODO: can this be moved to the end of perform_scene_change_detection? Histograms aren't needed if at EOS

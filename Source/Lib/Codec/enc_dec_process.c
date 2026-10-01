@@ -1261,13 +1261,17 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
     bool     is_16bit  = ctx->is_16bit;
     uint32_t sb_width  = MIN(scs->sb_size, pcs->ppcs->aligned_width - sb_org_x);
     uint32_t sb_height = MIN(scs->sb_size, pcs->ppcs->aligned_height - sb_org_y);
+    const uint8_t ss_x = scs->subsampling_x;
+    const uint8_t ss_y = scs->subsampling_y;
 
     if (is_16bit && SVT_EFFECTIVE_BIT_DEPTH(scs->static_config.encoder_bit_depth) > EB_EIGHT_BIT) {
         //SB128_TODO change 10bit SB creation
 
         const uint32_t input_luma_offset = (sb_org_y * input_pic->y_stride) + sb_org_x;
-        const uint32_t input_cb_offset   = ((sb_org_y >> 1) * input_pic->u_stride) + (sb_org_x >> 1);
-        const uint32_t input_cr_offset   = ((sb_org_y >> 1) * input_pic->v_stride) + (sb_org_x >> 1);
+        const uint32_t input_cb_offset   = ((sb_org_y >> ss_y) * input_pic->u_stride) + (sb_org_x >> ss_x);
+        const uint32_t input_cr_offset   = ((sb_org_y >> ss_y) * input_pic->v_stride) + (sb_org_x >> ss_x);
+        const uint32_t chroma_sb_width   = sb_width >> ss_x;
+        const uint32_t chroma_sb_height  = sb_height >> ss_y;
 
         //sb_width is n*8 so the 2bit-decompression kernel works properly
         uint32_t comp_stride_y           = input_pic->y_stride / 4;
@@ -1283,7 +1287,7 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                    sb_height);
 
         uint32_t comp_stride_uv            = input_pic->u_stride / 4;
-        uint32_t comp_chroma_buffer_offset = sb_org_x / 4 / 2 + sb_org_y / 2 * comp_stride_uv;
+        uint32_t comp_chroma_buffer_offset = (sb_org_x >> ss_x) / 4 + (sb_org_y >> ss_y) * comp_stride_uv;
 
         svt_aom_compressed_pack_sb(input_pic->u_buffer + input_cb_offset,
                                    input_pic->u_stride,
@@ -1291,16 +1295,16 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                    comp_stride_uv,
                                    (uint16_t*)ctx->input_sample16bit_buffer->u_buffer,
                                    ctx->input_sample16bit_buffer->u_stride,
-                                   sb_width / 2,
-                                   sb_height / 2);
+                                   chroma_sb_width,
+                                   chroma_sb_height);
         svt_aom_compressed_pack_sb(input_pic->v_buffer + input_cr_offset,
                                    input_pic->v_stride,
                                    input_pic->v_buffer_bit_inc + comp_chroma_buffer_offset,
                                    comp_stride_uv,
                                    (uint16_t*)ctx->input_sample16bit_buffer->v_buffer,
                                    ctx->input_sample16bit_buffer->v_stride,
-                                   sb_width / 2,
-                                   sb_height / 2);
+                                   chroma_sb_width,
+                                   chroma_sb_height);
 
         // PAD the packed source in incomplete sb up to max SB size
         svt_aom_pad_input_picture_16bit((uint16_t*)ctx->input_sample16bit_buffer->y_buffer,
@@ -1310,21 +1314,21 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                         scs->sb_size - sb_width,
                                         scs->sb_size - sb_height);
 
-        // Safe to divide by 2 (scs->sb_size - sb_width) >> 1), with no risk of off-of-one issues
-        // from chroma subsampling as picture is already 8px aligned
+        const uint32_t chroma_pad_width  = (scs->sb_size - sb_width) >> ss_x;
+        const uint32_t chroma_pad_height = (scs->sb_size - sb_height) >> ss_y;
         svt_aom_pad_input_picture_16bit((uint16_t*)ctx->input_sample16bit_buffer->u_buffer,
                                         ctx->input_sample16bit_buffer->u_stride,
-                                        sb_width >> 1,
-                                        sb_height >> 1,
-                                        (scs->sb_size - sb_width) >> 1,
-                                        (scs->sb_size - sb_height) >> 1);
+                                        chroma_sb_width,
+                                        chroma_sb_height,
+                                        chroma_pad_width,
+                                        chroma_pad_height);
 
         svt_aom_pad_input_picture_16bit((uint16_t*)ctx->input_sample16bit_buffer->v_buffer,
                                         ctx->input_sample16bit_buffer->v_stride,
-                                        sb_width >> 1,
-                                        sb_height >> 1,
-                                        (scs->sb_size - sb_width) >> 1,
-                                        (scs->sb_size - sb_height) >> 1);
+                                        chroma_sb_width,
+                                        chroma_sb_height,
+                                        chroma_pad_width,
+                                        chroma_pad_height);
 
         if (SVT_EFFECTIVE_HBD_MD(ctx->md_ctx->hbd_md) == 0) {
             svt_aom_store16bit_input_src(
@@ -1334,8 +1338,8 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
 
     if (is_16bit && SVT_EFFECTIVE_BIT_DEPTH(scs->static_config.encoder_bit_depth) == EB_EIGHT_BIT) {
         const uint32_t input_luma_offset = ((sb_org_y)*input_pic->y_stride) + (sb_org_x);
-        const uint32_t input_cb_offset   = (((sb_org_y) >> 1) * input_pic->u_stride) + ((sb_org_x) >> 1);
-        const uint32_t input_cr_offset   = (((sb_org_y) >> 1) * input_pic->v_stride) + ((sb_org_x) >> 1);
+        const uint32_t input_cb_offset   = ((sb_org_y >> ss_y) * input_pic->u_stride) + (sb_org_x >> ss_x);
+        const uint32_t input_cr_offset   = ((sb_org_y >> ss_y) * input_pic->v_stride) + (sb_org_x >> ss_x);
 
         sb_width  = ((sb_width < MIN_SB_SIZE) || ((sb_width > MIN_SB_SIZE) && (sb_width < MAX_SB_SIZE)))
              ? MIN(scs->sb_size, (pcs->ppcs->aligned_width + scs->border) - sb_org_x)
@@ -1357,8 +1361,8 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                   input_pic->u_stride,
                                   buf_16bit,
                                   ctx->input_sample16bit_buffer->u_stride,
-                                  sb_width >> 1,
-                                  sb_height >> 1);
+                                  sb_width >> ss_x,
+                                  sb_height >> ss_y);
 
         // PACK CR
         buf_16bit = (uint16_t*)ctx->input_sample16bit_buffer->v_buffer;
@@ -1367,8 +1371,8 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                   input_pic->v_stride,
                                   buf_16bit,
                                   ctx->input_sample16bit_buffer->v_stride,
-                                  sb_width >> 1,
-                                  sb_height >> 1);
+                                  sb_width >> ss_x,
+                                  sb_height >> ss_y);
     }
 }
 

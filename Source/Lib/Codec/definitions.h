@@ -322,7 +322,7 @@ enum {
 #define TF_MAX_L1_REF_PICS_SUB_6L 1 // Max additional tf pics at each side for L1 for sub-6L hierarchy
 
 #define MAX_TXB_COUNT 16 // Maximum number of transform blocks per depth
-#define MAX_TXB_COUNT_UV 4 // Maximum number of transform blocks per depth for chroma planes
+#define MAX_TXB_COUNT_UV MAX_TXB_COUNT // 4:4:4 128x128 can require 16 chroma transform blocks
 #define MAX_LAD 120 // max lookahead-distance 2x60fps
 #define ROUND_UV(x) (((x) >> 3) << 3)
 #define SWITCHABLE_FILTER_CONTEXTS ((SWITCHABLE_FILTERS + 1) * 4)
