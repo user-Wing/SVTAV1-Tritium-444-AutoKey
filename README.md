@@ -61,6 +61,6 @@ sh build-ffmpeg.sh
 - Tritium 上游：[Uranite/svt-av1-tritium](https://github.com/Uranite/svt-av1-tritium)，提交 `4bbed4ad69ed6a3d2e636457099fab07583e9819`；本地 444/自动关键帧合并基础 `a8d4f19e1ad3a5718e38cd6e4d5ee05dd3617669`，本分支进一步加入 SCD2。
 - FFmpeg 子模块：[FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg)，固定提交 `8864fd0aecf21fe9e3cfcd83a8ef33cb7e885fd4`；444 接口补丁为 `integration/ffmpeg-yuv444p10.patch`。
 - SVT 的原始许可见 `LICENSE.md`、`LICENSE-BSD2.md` 和 `PATENTS.md`；FFmpeg 许可见其子模块的 `LICENSE.md` 及 `COPYING.*`。新增构建脚本沿用 SVT 根目录许可证，FFmpeg 补丁沿用被修改源文件许可证。
-- 原 Tritium 文档保存在 `README-tritium-upstream.md`。本分支更新请正常合并，勿照原上游文档的 `reset --hard origin/main` 操作。
+- 原 Tritium 文档保存在 `README-tritium-upstream.md`；原仓库专用的 PGO 发布工作流保存在 `integration/upstream-pgo-build.yml` 供参考，不在新仓库自动启用。本分支更新请正常合并，勿照原上游文档的 `reset --hard origin/main` 操作。
 
 未上传原视频、测试输出、DLL/EXE、本机路径或构建缓存。完整 SVT 上游 Git 历史和许可证保留。
