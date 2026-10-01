@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.patch text eol=lf
+integration/ffmpeg-options.txt text eol=lf
+build-ffmpeg.bat text eol=crlf

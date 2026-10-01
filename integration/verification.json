@@ -1,0 +1,11 @@
+{
+  "date": "2026-10-01",
+  "linux_tested": false,
+  "baseline_sha256": "e8fdc2ebd5a2c29e7924ff1fd64c094f3f19445f6228b9c3e1892a085cfa8b06",
+  "source_files_match_current_merge_after_lf_normalization": true,
+  "scd2_full_frames": 1466,
+  "scd2_sha256": "e8fdc2ebd5a2c29e7924ff1fd64c094f3f19445f6228b9c3e1892a085cfa8b06",
+  "encoder": "libsvtav1 only",
+  "platform": "Windows x64, MSVC 19.44",
+  "fresh_public_build": true
+}

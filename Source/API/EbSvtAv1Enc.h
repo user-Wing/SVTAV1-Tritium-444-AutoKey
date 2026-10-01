@@ -615,6 +615,7 @@ typedef struct EbSvtAv1EncConfiguration {
      * limits scene-triggered key frames. Ignored for all-intra encoding.
      *
      * Default is 1 (Tritium). */
+    // 0: disabled; 1: histogram; 2: prediction-cost/temporal confirmation.
     uint32_t scene_change_detection;
 
     /* Log 2 Tile Rows and columns . 0 means no tiling,1 means that we split the dimension

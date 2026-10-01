@@ -4459,7 +4459,7 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
     scs->mrp_ctrls_init = scs->mrp_ctrls;
     // set to 1 if multipass and less than 200 frames in resourcecordination
     scs->is_short_clip = scs->static_config.gop_constraint_rc ? 1 : 0;
-    if (allintra || scs->static_config.aq_mode == 1 || scs->static_config.scene_change_detection == 1 ||
+    if (allintra || scs->static_config.aq_mode == 1 || scs->static_config.scene_change_detection != 0 ||
         scs->vq_ctrls.sharpness_ctrls.tf == 1 || scs->static_config.enable_variance_boost || scs->static_config.rtc) {
         scs->calculate_variance = 1;
     } else {

@@ -363,8 +363,8 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet* scs) {
         SVT_ERROR("The minimum intra period must be [-1, 2^31-2]  \n");
         return_error = EB_ErrorBadParameter;
     }
-    if (config->scene_change_detection > 1) {
-        SVT_ERROR("The scene change detection must be 0 or 1 \n");
+    if (config->scene_change_detection > 2) {
+        SVT_ERROR("The scene change detection must be 0, 1 or 2 \n");
         return_error = EB_ErrorBadParameter;
     }
     if (config->scene_change_detection != 0) {
@@ -920,8 +920,8 @@ EbErrorType svt_av1_verify_settings(SequenceControlSet* scs) {
         SVT_WARN("Non-RTC M10+ are meant for automation tooling usage. Visual artifacts may occur otherwise.\n");
     }
 
-    if (config->scene_change_detection > 1) {
-        SVT_ERROR("Scene change detection must be 0 or 1\n");
+    if (config->scene_change_detection > 2) {
+        SVT_ERROR("Scene change detection must be 0, 1 or 2\n");
         return_error = EB_ErrorBadParameter;
     }
     if (config->scene_change_detection &&

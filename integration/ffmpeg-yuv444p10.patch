@@ -1,0 +1,33 @@
+diff --git a/libavcodec/libsvtav1.c b/libavcodec/libsvtav1.c
+index 0bcc176243..70c7706ecb 100644
+--- a/libavcodec/libsvtav1.c
++++ b/libavcodec/libsvtav1.c
+@@ -129,7 +129,17 @@ static int alloc_buffer(EbSvtAv1EncConfiguration *config, SvtContext *svt_enc)
+ 
+     EbSvtIOFormat *in_data;
+ 
+-    svt_enc->raw_size = luma_size * 3 / 2;
++    switch (config->encoder_color_format) {
++    case EB_YUV444:
++        svt_enc->raw_size = luma_size * 3;
++        break;
++    case EB_YUV422:
++        svt_enc->raw_size = luma_size * 2;
++        break;
++    default:
++        svt_enc->raw_size = luma_size * 3 / 2;
++        break;
++    }
+ 
+     // allocate buffer for in and out
+     svt_enc->in_buf           = av_mallocz(sizeof(*svt_enc->in_buf));
+@@ -863,7 +873,8 @@ const FFCodec ff_libsvtav1_encoder = {
+     .p.capabilities = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_OTHER_THREADS,
+     .caps_internal  = FF_CODEC_CAP_NOT_INIT_THREADSAFE |
+                       FF_CODEC_CAP_AUTO_THREADS | FF_CODEC_CAP_INIT_CLEANUP,
+-    CODEC_PIXFMTS(AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV420P10),
++    CODEC_PIXFMTS(AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV420P10,
++                  AV_PIX_FMT_YUV444P10),
+     .color_ranges   = AVCOL_RANGE_MPEG | AVCOL_RANGE_JPEG,
+     .p.priv_class   = &class,
+     .defaults       = eb_enc_defaults,

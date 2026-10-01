@@ -1,314 +1,66 @@
-# SVT-AV1-Tritium
+# SVTAV1-Tritium-444-AutoKey
 
-SVT-AV1-Tritium is a fork of SVT-AV1-HDR aiming to incorporate features from SVT-AV1-PSYEX and SVT-AV1-Essential. Most notably, SVT-AV1-Tritium has scene detection and auto tiling from Essential.
+基于 SVT-AV1-Tritium，合并本地 **yuv444p10le** 编码修复和 **scd=2 自动关键帧**机制。仓库提供 SVT 核心源码、固定版本 FFmpeg 子模块、444 接口补丁和构建入口，直接生成仅含 SVT 视频编码器的最小 FFmpeg。
 
-SVT-AV1-Tritium (and SVT-AV1-HDR) is the Scalable Video Technology for AV1 (SVT-AV1 Encoder) with perceptual enhancements for psychovisually optimal SDR and HDR AV1 encoding. The goal is to create the best encoding implementation for perceptual quality with AV1, with additional optimizations for HDR encoding and content with film grain.
+此实现仍为实验性支持；12-bit 编码尚未实现。Tritium 的其他选项和原有 `scd=0/1` 保留。若需使用本轮代价/前瞻判断，请显式设置 `scd=2`。
 
-Expect diverged history when running `git pull` due to rebasing against SVT-AV1-HDR. If you encounter errors or conflicts, run `git fetch && git reset --hard origin/main` to update instead.
+## Windows x64 构建
 
-## Downloads
+安装并加入 PATH：
 
-Currently, there is [HandBrake](https://github.com/Uranite/HandBrake-SVT-AV1-Tritium?tab=readme-ov-file#downloads-and-build-status) build with SVT-AV1-Tritium available.
+- [Git for Windows](https://gitforwindows.org/)。
+- [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/downloads/)，选择“使用 C++ 的桌面开发”，包含 MSVC 和 Windows SDK。
+- [CMake](https://cmake.org/download/) 和 [NASM](https://www.nasm.us/)。
+- GNU Make：可安装 [MSYS2](https://www.msys2.org/)，在其终端执行 `pacman -S make`。脚本可自动使用默认位置 `C:\msys64\usr\bin`；其他位置需手动加入 PATH。
 
-Additionally, standalone EncApp builds optimized with LTO + PGO can be found [here](https://github.com/juliobbv-p/svt-av1-hdr/releases), provided by @Akatmks's [GitHub Action](https://github.com/Akatmks/build-svt-av1).
+在没有空格的目录中克隆、构建：
 
-## Quick Overview
+```powershell
+git clone --recurse-submodules --branch tritium-444-autokey https://github.com/user-Wing/SVTAV1-Tritium-444-AutoKey.git
+cd SVTAV1-Tritium-444-AutoKey
+.\build-ffmpeg.bat
+```
 
-SVT-AV1-Tritium inherits SVT-AV1-HDR's defaults, which were chosen to strike a good balance between **detail retention** and **artifact prevention** across a wide variety of content (e.g. live action, animation and screen recordings).
+输出：`build-output/bin/ffmpeg.exe`、`ffprobe.exe`、`SvtAv1Enc.dll`。运行时将 DLL 与 EXE 放在同一目录。脚本自动初始化子模块、应用 FFmpeg 补丁、构建 SVT SIMD 库和 FFmpeg，默认并行数为 6。需要联网获取 FFmpeg 子模块；不下载测试视频。
 
-For the majority of use cases, only three parameters are required to be adjusted: tuning mode, CRF and preset.
+## Linux 构建
 
-Some popular use case examples:
-- Prioritize even further detail retention over artifact prevention (tune VQ):  
-  `--tune 0 --crf xx (any, start with 35) --preset x (2 to 6 recommended)`
-- Prioritize film grain retention (tune Film Grain):  
-  `--tune 6 --crf xx (20 to 40 recommended, start with 30) --preset x (1 or 2 *HIGHLY* recommended)`
-- Still image coding (tune IQ + AVIF):  
-  `--tune 3 --crf xx (any, start with 30) --preset x (2 to 6 recommended) --avif 1`
+安装 C/C++ 编译器、CMake、Git、NASM、GNU Make 和 pkg-config，然后执行：
 
-If desired, additional parameters (described down below) are available for further tweaking and hypertuning of the encoding process.
+```sh
+git clone --recurse-submodules --branch tritium-444-autokey https://github.com/user-Wing/SVTAV1-Tritium-444-AutoKey.git
+cd SVTAV1-Tritium-444-AutoKey
+sh build-ffmpeg.sh
+```
 
-Note: SVT-AV1-Tritium allocates bits in a very different way than (mainline) SVT-AV1, so adjusting the CRF value is expected to match a certain bitrate or file size target.
+输出位于 `build-output/bin`，SVT 静态链接到 FFmpeg。Linux 入口尚未在本轮本机验证，Windows x64 已进行完整构建与编码验证。
 
-## Information
+## 编码示例
 
-Unlike its predecessor (SVT-AV1-PSY), SVT-AV1-HDR features a more relaxed development cycle, and so are its expectations:
+```powershell
+.\build-output\bin\ffmpeg.exe -i input.mkv -an -c:v libsvtav1 -pix_fmt yuv444p10le -preset 8 -crf 36 -svtav1-params "scd=2:scd-min-keyint=32:keyint=257:enable-tf=3:tf-strength=1:kf-tf-strength=1:lp=4" output.mkv
+```
 
-- New versions are only used for source code tagging purposes -- no first-party binaries will be provided
-- Rebases onto SVT-AV1 are only guaranteed on **major** version changes (e.g. 4.0, 5.0, etc.)
-- However, minor or patch version releases might still happen in practice
-- Major releases don't have any set dates to ensure the integration of SVT-AV1-HDR's features with the rebased mainline code is solid
+`scd=2` 先用直方图筛选，再比较低分辨率亮度的帧内和运动预测代价，使用最多 3 个可用后续帧复核，减少闪光、遮挡返回、平移造成的误插帧。最小/最大关键帧间隔仍然生效；代价分析有额外计算，同 preset 不等于零速度开销。
 
-For additional docs (build instructions, documentation, usage, etc.), see the [SVT-AV1 README](README_mainline.md).
+最小构建只启用 `libsvtav1` 视频编码器，保留常用测试输入解码器和容器，不包含音频编码器、AV1 解码器或 VMAF。评分与双解码验证使用独立完整 FFmpeg。查看构建选项：`integration/ffmpeg-options.txt`。
 
-## Feature Additions
+## 验证结果与范围
 
-### From [SVT-AV1-HDR-Personalized](https://github.com/Clybius/svt-av1-hdr-personalized)
+同一约 61 秒 H.264 原片，1466 帧；preset 8、CRF 36、444p10le、lp=4、TF=3/强度1、最小间隔32/最大257，评分模型严格为 **vmaf_v0.6.1neg**：
 
-- `--enable-daala` *0 to 4*
+| 策略 | IVF 字节数 | VMAF NEG | 关键帧数 |
+|---|---:|---:|---:|
+| Tritium + scd=1 | 10,001,870 | 94.936008 | 20 |
+| Tritium + scd=2 | 9,994,244 | 94.942663 | 21 |
 
-Enables the Daala perceptual distortion metric, which uses frequency-domain masking to better preserve fine textures and grain.
+体积减少 0.076%，分数增加 0.006655，属于微小改善，不能据此推断所有素材都更好。原 Tritium 19 组回归码流逐字节不变；SCD2 的场景/间隔、24 次确定性、闪光/平移/64×64 SIMD 边界、随机访问与参数限制验证通过。两策略全片 dav1d/libaom 解码哈希一致。本次合并未另做 Tritium ASan；仅色度切换、长遮挡及更多素材仍需验证。
 
-- **1**: CDEF
-- **2**: 1 + TX Search + MDS3 Selection
-- **3**: 2 + DCT TX
-- **4**: 3 + MDS0 + IFS RD + OBMC
+## 来源、版本与许可证
 
-### From [SVT-AV1-Essential](https://github.com/nekotrix/SVT-AV1-Essential)
+- Tritium 上游：[Uranite/svt-av1-tritium](https://github.com/Uranite/svt-av1-tritium)，提交 `4bbed4ad69ed6a3d2e636457099fab07583e9819`；本地 444/自动关键帧合并基础 `a8d4f19e1ad3a5718e38cd6e4d5ee05dd3617669`，本分支进一步加入 SCD2。
+- FFmpeg 子模块：[FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg)，固定提交 `8864fd0aecf21fe9e3cfcd83a8ef33cb7e885fd4`；444 接口补丁为 `integration/ffmpeg-yuv444p10.patch`。
+- SVT 的原始许可见 `LICENSE.md`、`LICENSE-BSD2.md` 和 `PATENTS.md`；FFmpeg 许可见其子模块的 `LICENSE.md` 及 `COPYING.*`。新增构建脚本沿用 SVT 根目录许可证，FFmpeg 补丁沿用被修改源文件许可证。
+- 原 Tritium 文档保存在 `README-tritium-upstream.md`。本分支更新请正常合并，勿照原上游文档的 `reset --hard origin/main` 操作。
 
-- `--enable-dlf 3`
-
-3 forces the most accurate loop filter for every encoding scenario, with important consequences in compute time at faster presets.
-
-- `--scd` *0 and 1*
-
-(Re-)introduce keyframes on scene changes, for more accurate seeking and lowered quality inconsistencies. The feature was tuned for the highest accuracy following a [testing](https://gist.github.com/nekotrix/a025a48448ce05c3af9bd162dda70f66) round. 
-
-- `--min-keyint` *-1 to keyint*
-
-The minimum amount of frames before a new keyframe can be introduced by the SCD feature, which helps prevent cases of keyframes spamming.
--1 sets an automatic minimum keyframes placement of a multiple of the mini-gop length.
-0 disables all limitations on SCD and is not recommended.
-
-- `--auto-tiling` *0 and 1*
-
-Automatically sets tiles appropriate for the source input resolution, which in turn improves decoding performance with minimal effect on efficiency. The feature was tuned following a [testing](https://wiki.x266.mov/blog/svt-av1-fourth-deep-dive-p2#tiles) round 
-
-- `FFMS2 support` ([discussion](https://github.com/nekotrix/SVT-AV1-Essential/discussions/7))
-
-You can now feed the standalone encoder regular video files like MP4s, MKVs, M2TSs and many others without having to rely on piping with FFmpeg or VSPipe. Though you need to compile the encoder with FFMS2 support enabled.
-
-- `--zones`
-
-In CRF/CQP mode, allows setting different quality levels for the specified frame ranges.  
-For example, `--zones 0,100,20;101,200,40` applies a CRF/CQP value of 20 to frames 0-100, a CRF/CQP value of 40 to frames 101-200, while maintaining the original quality level for all other frames.
-
-- **`--enable-alt-cdef`** *0 to 3*
-
-Proposes different CDEF trade-offs, typically resulting in weaker deringing but improved fidelity. May gradually cause higher distortion, especially at high presets.  
-**2** and **3** force the best CDEF quality level which can improve results, at the cost of speed.
-
-- **`--enable-alt-dlf`** *0 to 3*
-
-Proposes different DLF trade-offs, typically resulting in weaker deblocking but improved fidelity. May gradually cause higher distortion, especially at high presets.  
-It is recommended to pair it with `--enable-dlf 3` to force the best DLF quality level, which can improve results at the cost of speed.
-
-- `--low-memory` *0 and 1*
-
-This parameter sets options that reduce RAM usage of the encoding instance significantly.
-Enabling low-memory can have some impact on encoding speeds and perceptual quality.
-It is most effective in CRF/CQP Random Access mode.
-
-- `--hide-banner` *0 and 1*
-
-Hides the encoder parameters banner that is normally printed at the start of an encode. This helps keep the console output cleaner if you are scripting or wrapping the encoder.
-
-- `--enable-tf 3`
-
-The setting enables a more powerful, user-controllable, temporal filter on *all* frames, which can serve as an effective fast built-in temporal denoiser.  
-The strength can still be adjusted up or down using `--tf-strength`.
-
-### SVT-AV1-HDR
-
-- `PQ-optimized Variance Boost curve`
-
-A custom curve specifically designed for HDR video and images with a Perceptual Quantizer (PQ) transfer. It can manually be turned on by setting `--variance-boost-curve 3`, or automatically by setting the corresponding CICP value `--transfer-characteristics 16`.
-
-- `Film Grain tune (tune 6)`
-
-An opinionated tune optimized for film grain retention and temporal consistency. The recommended CRF range to use tune 6 is 20 to 40.
-
-Tune 6 is equivalent to setting these parameters: `--tune 0 --enable-tf 0 --enable-restoration 0 --enable-cdef 0 --complex-hvs 1 --tx-bias 1 --ac-bias 4.00`.
-
-- `High Profile / 4:4:4`
-
-Allows encoding in High Profile, 4:4:4 (no chroma subsampling). Perfect for screen recordings and high-quality AVIFs. Enabled automatically when source is a 4:4:4 Y4M or with `--color-format 444` if it's a raw YUV.
-
-- `--enable-qmpsnr` *0 and 1*
-
-Uses quantization matrices in the distortion computation for RD search, providing visual gains especially for images. A feature from libaom. Default is 1 for tune IQ, 0 otherwise.
-
-- `--cdef-scaling` *1 (0.06x) to 30 (2x)*
-
-Controls how 'strongly' the CDEF (Constrained Directional Enhancement Filter) is applied to the output. Lower values make output sharper, at the expense of ringing artifacts. Higher values make output smoother, with fewer ringing artifacts. Values of 10-12 have been reported to be useful by multiple people.
-
-- `--noise` *0 to 200*
-
-Generates and adds noise table with specified strength value to be used as fgs-table during the encode. 50 is roughly equivalent to `--film-grain 50`.
-
-- `--noise-chroma` *-1 to 200*
-
-Adds chroma noise with strength based on `--noise` setting (-1) or sets a strength value independently (0-100), default is -1 (chroma strength is ~60% of `--noise`).
-
-- `--noise-chroma-from-luma` *0 and 1*
-
-Apply noise to chroma planes based on the luma plane. When enabled, chroma noise will appear on grayscale content, default is 0.
-
-- `--noise-size` *-1 to 13*
-
-Set grain size for generated noise table, default is -1 (auto, based on input resolution).
-
-### From SVT-AV1-PSY
-
-- `--variance-boost-strength` *1 to 4* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2195)**)
-
-Provides control over our augmented AQ Modes 0 and 2 which can utilize variance information in each frame for more consistent quality under high/low contrast scenes. Four curve options are provided, and the default is curve 2. 1: mild, 2: gentle, 3: medium, 4: aggressive.
-
-- `--variance-octile` *1 to 8* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2195)**)
-
-Controls how "selective" the algorithm is when boosting superblocks, based on their low/high 8x8 variance ratio. A value of 1 is the least selective, and will readily boost a superblock if only 1/8th of the superblock is low variance. Conversely, a value of 8 will only boost if the *entire* superblock is low variance. Lower values increase bitrate. The default value is 5.
-
-- `--variance-boost-curve` *0 to 3* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2357)**)
-
-Enables different kinds of Variance Boost curves, with different bit allocation and visual characteristics. The default is 0.
-
-- `--ac-bias` *0.0 to 8.0* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2513)**)
-
-Configures psychovisual rate distortion strength to improve perceived quality by measuring and attempting to preserve the visual energy distribution of high-frequency details and textures. The default is 1.0.
-
-- `--tx-bias` *0 to 3*
-
-Configure psychovisually-oriented pathways that bias towards sharpness and detail retention, at the possible expense of increased blocking and banding.
-
-- `--tf-strength` *0 to 4* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2352)**)
-
-Manually adjust temporal filtering strength to adjust the trade-off between fewer artifacts in motion and fine detail retention. Each increment is a 2x increase in temporal filtering strength; the default value of 1 is 4x weaker than mainline SVT-AV1's default temporal filter (which would be equivalent to 3 here).
-
-- `--kf-tf-strength` *0 to 4*
-
-Manually adjust temporal filtering strength specifically on keyframes. Each increment is a 2x increase in temporal filtering strength; a value of 1 is 4x weaker than mainline SVT-AV1's default temporal filter (which would be equivalent to 3 here). The default value is 1, which reduces alt-ref temporal filtering strength by 4x on keyframes.
-
-- `--noise-norm-strength` *0 to 4*
-
-In a scenario where a video frame contains areas with fine textures or flat regions, noise normalization helps maintain visual quality by boosting certain AC coefficients. The default value is 1.
-
-- `--qp-scale-compress-strength` *0.0 to 8.0* (**[Merged to Mainline (strengths 0 to 3)](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2461)**)
-
-Increases video quality temporal consistency, especially with clips that contain film grain and/or contain fast-moving objects.
-
-- `--chroma-qm-min` & `--chroma-qm-max` *0 to 15* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2442)**)
-
-Set the minimum & maximum quantization matrices for chroma planes. The defaults are 8 and 15, respectively. These options decouple chroma quantization matrix control from the luma quantization matrix options currently available, allowing for more control over chroma quality.
-
-- `Tune IQ` (**[Ported to libaom](https://aomedia.googlesource.com/aom/+/refs/tags/v3.12.0)**, **[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2489)**)
-
-A new tune, optimized for still images based on SSIMULACRA2 performance on the CID22 Validation test set. Not recommended for use outside of all-intra encoding.
-
-- `Extended CRF` (**[Merged to Mainline: quarter-step](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2503)**, **[extension to 70](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2522)**)
-
-Provides a more versatile and granular way to set CRF. Range has been extended to 70 (from 63) to help with ultra-low bitrate encodes, and can now be set in quarter-step (0.25) increments.
-
-- `--hbd-mds` *-1 to 2* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2644)**)
-
-This setting is short for High Bit Depth - Mode DecisionS. It controls the bit-depth at which internal operations are performed at.
-
--1 follows the default preset behavior, 0 forces 8-bit mode decision for everything, 1 forces 10-bit, 2 is adaptive 8/10-bit based on scenario. Default is -1, following default preset behavior.
-
-- `Presets -2 & -3`
-
-Terrifically slow encoding modes for research purposes.
-
-- `--sharpness` *0 to 7* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2346)**)
-
-A parameter for modifying loopfilter deblock sharpness and rate distortion to improve visual fidelity. The default is 1.
-
-- `--dolby-vision-rpu` *path to file*
-
-Set the path to a Dolby Vision RPU for encoding Dolby Vision video. SVT-AV1-Tritium needs to be built with the `enable-libdovi` flag enabled in build.sh (see `./Build/linux/build.sh --help` for more info) (Thank you @quietvoid !)
-
-- `--hdr10plus-json` *path to file*
-
-Set the path to an HDR10+ JSON file for encoding HDR10+ video. SVT-AV1-Tritium needs to be built with the `enable-hdr10plus` flag enabled in build.sh (see `./Build/linux/build.sh --help` for more info) (Thank you @quietvoid !)
-
-- `Detailed progress` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2511)**)
-
-A new progress mode that provides more detailed information about the encoding process.
-
-- `--fgs-table` *path to file* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/commit/ae7ce1abc5f3f7913624f728ae123f8b8c1e30de)**)
-
-Argument for providing a film grain table for synthetic film grain (similar to aomenc's '--film-grain-table=' argument).
-
-- `--enable-dlf 2` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2468)**)
-
-Enables a more accurate loop filter that prevents blocking, for a modest increase in compute time (most noticeable at presets 7 to 9).
-
-- `Higher-quality presets for 8K and 16K`
-
-Lowers the minimum available preset from 5 to 2 for higher-quality 8K and 16K encoding (64 GB of RAM recommended per encoding instance).
-
-- `--luminance-qp-bias` *0 to 100* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2348)**)
-
-Enables frame-level luminance bias to improve quality in dark scenes by adjusting frame-level QP based on average luminance across each frame.
-
-- `--max-tx-size` *32 and 64* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2507)**)
-
-Restricts available transform sizes to a maximum of 32x32 or 64x64 pixels. Can help slightly improve detail retention at high fidelity CRFs.
-
-- `--adaptive-film-grain` *0 and 1* (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2347)**)
-
-Adaptively varies the film grain blocksize based on the resolution of the input video. Often greatly improves the consistency of film grain in the output video, reducing grain patterns.
-
-- `Odd dimension encoding support` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2350)**)
-
-Allows the encoder to accept content with odd width and/or height (e.g. 1920x817px). Gone are the "Source Width/Height must be even for YUV_420 colorspace" messages.
-
-- `Reduced minimum width/height requirements` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2356)**)
-
-Allows the encoder to accept content with width and/or height as small as 4 pixels (e.g. 32x18px).
-
-- `--enable-tf 2` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2352)**)
-
-Adaptively varies temporal filtering strength based on 64x64 block error. This can slightly improve visual fidelity in scenes with fast motion or fine detail. Setting this to 2 will override `--tf-strength` and `--kf-tf-strength`, as their values will be automatically determined by the encoder.
-
-- `--alt-ssim-tuning` *0 and 1*
-
-Enables VQ psychovisual optimizations from tune 0, as well as changing SSIM rate-distortion calculations by utilizing an alternative per-pixel variance function across 4X4, 8X8, and 16X16 blocks in addition to superblock-level SSIM rate-distortion tuning. Currently only operates on tune 2. The default is 0.
-
-- `Enhanced Content Detection` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2494)**)
-
-A smarter content detection algorithm to optimize the encoder for either screen or photographic content based on the image. This helps Tune IQ achieve better visual fidelity on still images.
-
-- `--noise-adaptive-filtering` *0 to 4*
-
-Controls noise detection which disables CDEF/restoration when noise level is high enough. [0: off, 1: both CDEF and restoration noise-adaptive filtering are on, 2: default tune behavior, 3: noise-adaptive CDEF only, 4: noise-adaptive restoration only] The default is 2.
-
-### Modified Defaults
-
-While SVT-AV1-HDR has questionable defaults that I'd like to change, I don't want to make the fork situation worse by yet introducing another fork with different defaults that you'd have to learn and remember. Instead, I opted to keep SVT-AV1-HDR defaults, but enable Scene Change Detection and Auto Tiling on top of that
-
-SVT-AV1-Tritium includes SVT-AV1-HDR's Modified Defaults:
-
-- Set default encoding preset to 4.
-- Default 10-bit color depth when given a 10-bit input.
-- Disable film grain denoising by default, as it often harms visual fidelity. (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/commit/8b39b41df9e07bbcdbd19ea618762c5db3353c03)**)
-- Enable quantization matrices by default.
-- Set minimum QM level to 6 by default for more consistent performance than min QM level 0 doesn't offer.
-- Set maximum QM level to 10 by default.
-- Set minimum chroma QM level to 8 by default to prevent the encoder from picking suboptimal chroma QMs.
-- `--enable-variance-boost` enabled by default.
-- `--keyint -2` (the default) uses a ~10s GOP size instead of ~5s.
-- `--sharpness 1` by default to prioritize encoder sharpness.
-- Sharp transform optimizations (`--sharp-tx 1`) are enabled by default to supercharge SVT-AV1-HDR ac-bias optimizations. It is recommended to disable it if you don't use `--ac-bias`, which is set to 1.0 by default.
-- `--tf-strength 1` by default for much lower alt-ref temporal filtering to decrease blur for cleaner encoding.
-- `--kf-tf-strength 1` controls are available to the user and are set to 1 by default to remove KF artifacts.
-
-SVT-AV1-Tritium Defaults:
-
-- `--scd 1` by default.
-- `--auto-tiling 1` by default.
-
-### Other Changes
-
-- `--color-help` (**[Merged to Mainline](https://gitlab.com/AOMediaCodec/SVT-AV1/-/merge_requests/2351)**)
-
-Prints the information found in Appendix A.2 of the user guide in order to help users more easily understand the Color Description Options in SvtAv1EncApp.
-
-## License
-
-Up to v0.8.7, SVT-AV1 is licensed under the BSD-2-clause license and the
-Alliance for Open Media Patent License 1.0. See [LICENSE](LICENSE-BSD2.md) and
-[PATENTS](PATENTS.md) for details. Starting from v0.9, SVT-AV1 is licensed
-under the BSD-3-clause clear license and the Alliance for Open Media Patent
-License 1.0. See [LICENSE](LICENSE.md) and [PATENTS](PATENTS.md) for details.
-
-*SVT-AV1-Tritium does not feature license modifications from mainline SVT-AV1.*
+未上传原视频、测试输出、DLL/EXE、本机路径或构建缓存。完整 SVT 上游 Git 历史和许可证保留。

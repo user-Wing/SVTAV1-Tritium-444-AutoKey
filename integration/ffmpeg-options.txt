@@ -1,0 +1,16 @@
+--disable-x86asm
+--disable-doc
+--disable-debug
+--disable-network
+--disable-autodetect
+--disable-everything
+--enable-ffmpeg
+--enable-ffprobe
+--enable-libsvtav1
+--enable-encoder=libsvtav1
+--enable-decoder=h264,hevc,vp9,mpeg4,mpeg2video,mjpeg,rawvideo,ffv1
+--enable-parser=h264,hevc,vp9,mpeg4video,mpegvideo,av1
+--enable-demuxer=mov,matroska,avi,mpegts,rawvideo,yuv4mpegpipe,ivf,image2
+--enable-muxer=matroska,mp4,ivf,rawvideo,null
+--enable-filter=scale,format,fps,trim,setpts,null,psnr,ssim
+--enable-protocol=file,pipe

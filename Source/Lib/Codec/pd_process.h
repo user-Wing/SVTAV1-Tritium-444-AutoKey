@@ -142,6 +142,9 @@ typedef struct PictureDecisionContext {
     bool     next_arf_is_s;
     int64_t  current_input_poc;
     uint64_t last_scd_key_poc;
+    EbPictureBufferDesc scd_prev_pic;
+    bool scd_prev_valid;
+    uint64_t scd_flash_end_poc;
 
     // Ref-frame management bookkeeping (per pd_process thread):
     //   pic_id_per_dpb_slot[i] : application pic_id held in DPB slot i (0 = none).
