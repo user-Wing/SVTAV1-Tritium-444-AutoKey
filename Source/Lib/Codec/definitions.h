@@ -325,6 +325,8 @@ enum {
 #define MAX_TXB_COUNT_UV MAX_TXB_COUNT // 4:4:4 128x128 can require 16 chroma transform blocks
 #define MAX_LAD 120 // max lookahead-distance 2x60fps
 #define ROUND_UV(x) (((x) >> 3) << 3)
+// Round in luma coordinates to the origin of a minimum 4x4 chroma block.
+#define ROUND_UV_TO(x, ss) (((x) >> (2 + (ss))) << (2 + (ss)))
 #define SWITCHABLE_FILTER_CONTEXTS ((SWITCHABLE_FILTERS + 1) * 4)
 #define CFL_BUF_LINE (32)
 #define CFL_BUF_LINE_I128 (CFL_BUF_LINE >> 3)
@@ -1891,7 +1893,8 @@ typedef enum Tune {
     TUNE_SSIM = 2, // SSIM-optimized
     TUNE_IQ   = 3, // Image Quality
     TUNE_MS_SSIM = 4,  // MS_SSIM and SSIMULACRA2 optimized
-    TUNE_VMAF    = 5   // VMAF preprocessing (unsharp filter on luma)
+    TUNE_VMAF    = 5,  // VMAF preprocessing (unsharp filter on luma)
+    TUNE_FILM_GRAIN = 6 // Film Grain optimized
 } Tune;
 
 /*
@@ -1968,7 +1971,8 @@ typedef enum DistType
 {
     DIST_SSD = 0,
     DIST_SSIM = 1,
-    DIST_TOTAL = 2
+    DIST_DAALA = 2,
+    DIST_TOTAL = 3
 } DistType;
 
 typedef enum EbPtrType
@@ -2209,6 +2213,9 @@ typedef enum {
 
 // Both SFRAME_FLEXIBLE_BASE and SFRAME_DEC_POSI_BASE use flexible insertion
 #define IS_SFRAME_FLEXIBLE_INSERT(mode) (mode == SFRAME_FLEXIBLE_BASE || mode == SFRAME_DEC_POSI_BASE)
+
+#define CONVERT_TO_STR_COMPILE_TIME_HELPER(x) #x
+#define CONVERT_TO_STR_COMPILE_TIME(x) CONVERT_TO_STR_COMPILE_TIME_HELPER(x)
 
 #ifdef __cplusplus
 }

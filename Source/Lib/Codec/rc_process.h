@@ -68,7 +68,6 @@ extern const double svt_av1_tpl_hl_islice_div_factor[EB_MAX_TEMPORAL_LAYERS];
 extern const double svt_av1_tpl_hl_base_frame_div_factor[EB_MAX_TEMPORAL_LAYERS];
 
 extern const double svt_av1_r0_weight[3];
-extern const double svt_av1_qp_scale_compress_weight[4];
 
 extern const double            svt_av1_rate_factor_deltas[RATE_FACTOR_LEVELS];
 extern const rate_factor_level svt_av1_rate_factor_levels[SVT_AV1_FRAME_UPDATE_TYPES];
@@ -245,7 +244,7 @@ struct SequenceControlSet;
 
 // AQ
 void svt_av1_rc_init_sb_qindex(struct PictureControlSet* pcs, struct SequenceControlSet* scs);
-void svt_av1_variance_adjust_qp(struct PictureControlSet* pcs);
+void svt_av1_variance_adjust_qp(struct PictureControlSet* pcs, bool readjust_base_q_idx);
 void svt_aom_sb_qp_derivation_tpl_la(struct PictureControlSet* pcs);
 void svt_av1_normalize_sb_delta_q(struct PictureControlSet* pcs);
 void svt_av1_generate_b64_me_qindex_map(struct PictureControlSet* pcs);

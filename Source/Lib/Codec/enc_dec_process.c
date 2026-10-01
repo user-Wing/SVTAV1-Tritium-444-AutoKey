@@ -1,4 +1,4 @@
-﻿/*
+/*
 * Copyright(c) 2019 Intel Corporation
 * Copyright (c) 2016, Alliance for Open Media. All rights reserved
 *
@@ -32,6 +32,43 @@
 
 #include "pack_unpack_c.h"
 #include "deblocking_filter.h"
+
+void svt_aom_update_intrabc_reference(PictureControlSet* pcs, uint32_t sb_origin_x, uint32_t sb_origin_y) {
+    PictureParentControlSet*  ppcs = pcs->ppcs;
+    const SequenceControlSet* scs  = pcs->scs;
+    if (!ppcs->frm_hdr.allow_intrabc || SVT_EFFECTIVE_BIT_DEPTH(scs->static_config.encoder_bit_depth) == EB_EIGHT_BIT ||
+        SVT_EFFECTIVE_HBD_MD(pcs->hbd_md)) {
+        return;
+    }
+
+    // IntraBC in 8-bit MD needs all three planes of the selected reconstruction.
+    // MD scratch may contain untested chroma or the last partition tried. Refresh
+    // the completed SB before the wavefront makes it available to other workers.
+    EbPictureBufferDesc* recon8;
+    EbPictureBufferDesc* recon16;
+    svt_aom_get_recon_pic(pcs, &recon8, false);
+    svt_aom_get_recon_pic(pcs, &recon16, true);
+    uint8_t*       dst[3] = {recon8->y_buffer, recon8->u_buffer, recon8->v_buffer};
+    uint16_t*      src[3] = {(uint16_t*)recon16->y_buffer, (uint16_t*)recon16->u_buffer, (uint16_t*)recon16->v_buffer};
+    const uint32_t dst_stride[3] = {recon8->y_stride, recon8->u_stride, recon8->v_stride};
+    const uint32_t src_stride[3] = {recon16->y_stride, recon16->u_stride, recon16->v_stride};
+    for (unsigned plane = 0; plane < 3; ++plane) {
+        const unsigned sx     = plane ? scs->subsampling_x : 0;
+        const unsigned sy     = plane ? scs->subsampling_y : 0;
+        const uint32_t x      = sb_origin_x >> sx;
+        const uint32_t y      = sb_origin_y >> sy;
+        const uint32_t width  = MIN(scs->sb_size, ppcs->aligned_width - sb_origin_x) >> sx;
+        const uint32_t height = MIN(scs->sb_size, ppcs->aligned_height - sb_origin_y) >> sy;
+        svt_aom_un_pack2d(src[plane] + y * src_stride[plane] + x,
+                          src_stride[plane],
+                          dst[plane] + y * dst_stride[plane] + x,
+                          dst_stride[plane],
+                          NULL,
+                          0,
+                          width,
+                          height);
+    }
+}
 
 static void copy_mv_rate(PictureControlSet* pcs, MdRateEstimationContext* dst_rate) {
     FrameHeader* frm_hdr = &pcs->ppcs->frm_hdr;
@@ -350,8 +387,8 @@ static void svt_av1_add_film_grain(EbPictureBufferDesc* src, EbPictureBufferDesc
     uint8_t *luma, *cb, *cr;
     int32_t  height, width, luma_stride, chroma_stride;
     int32_t  use_high_bit_depth = 0;
-    int32_t  chroma_subsamp_x   = 0;
-    int32_t  chroma_subsamp_y   = 0;
+    int32_t  chroma_subsamp_x   = src->color_format == EB_YUV444 ? 0 : 1;
+    int32_t  chroma_subsamp_y   = src->color_format >= EB_YUV422 ? 0 : 1;
 
     AomFilmGrain params = *film_grain_ptr;
 
@@ -359,20 +396,14 @@ static void svt_av1_add_film_grain(EbPictureBufferDesc* src, EbPictureBufferDesc
     case EB_EIGHT_BIT:
         params.bit_depth   = 8;
         use_high_bit_depth = 0;
-        chroma_subsamp_x   = 1;
-        chroma_subsamp_y   = 1;
         break;
     case EB_TEN_BIT:
         params.bit_depth   = 10;
         use_high_bit_depth = 1;
-        chroma_subsamp_x   = 1;
-        chroma_subsamp_y   = 1;
         break;
     default: //todo: Throw an error if unknown format?
         params.bit_depth   = 10;
         use_high_bit_depth = 1;
-        chroma_subsamp_x   = 1;
-        chroma_subsamp_y   = 1;
     }
 
     dst->max_width  = src->max_width;
@@ -1380,13 +1411,23 @@ static void copy_neighbour_arrays_pd0(PictureControlSet* pcs, ModeDecisionContex
                                       uint32_t dst_idx, uint32_t sb_org_x, uint32_t sb_org_y) {
     const uint16_t tile_idx = ctx->tile_index;
 
-    svt_aom_copy_neigh_arr(pcs->md_luma_recon_na[src_idx][tile_idx],
-                           pcs->md_luma_recon_na[dst_idx][tile_idx],
-                           sb_org_x, // blk org is always the top left of the SB
-                           sb_org_y,
-                           pcs->scs->super_block_size,
-                           pcs->scs->super_block_size,
-                           NEIGHBOR_ARRAY_UNIT_FULL_MASK);
+    if (SVT_EFFECTIVE_HBD_MD(ctx->hbd_md)) {
+        svt_aom_copy_neigh_arr(pcs->md_luma_recon_na_16bit[src_idx][tile_idx],
+                               pcs->md_luma_recon_na_16bit[dst_idx][tile_idx],
+                               sb_org_x,
+                               sb_org_y,
+                               pcs->scs->super_block_size,
+                               pcs->scs->super_block_size,
+                               NEIGHBOR_ARRAY_UNIT_FULL_MASK);
+    } else {
+        svt_aom_copy_neigh_arr(pcs->md_luma_recon_na[src_idx][tile_idx],
+                               pcs->md_luma_recon_na[dst_idx][tile_idx],
+                               sb_org_x,
+                               sb_org_y,
+                               pcs->scs->super_block_size,
+                               pcs->scs->super_block_size,
+                               NEIGHBOR_ARRAY_UNIT_FULL_MASK);
+    }
 }
 
 void svt_aom_copy_neighbour_arrays(PictureControlSet* pcs, ModeDecisionContext* ctx, uint32_t src_idx, uint32_t dst_idx,
@@ -1494,7 +1535,10 @@ static void set_blocks_to_be_tested(SequenceControlSet* scs, PictureControlSet* 
                             : 4;
     int max_sq_size = ctx->max_block_size;
     if (pcs->mimic_only_tx_4x4) {
-        max_sq_size = MIN(max_sq_size, 8);
+        // Chroma uses the maximum transform for each coding block. With
+        // full-resolution chroma, a 4x4 block is needed for lossless coding.
+        max_sq_size = MIN(max_sq_size, 4 << scs->subsampling_x);
+        min_sq_size = MIN(min_sq_size, max_sq_size);
     } else if (scs->static_config.max_tx_size == 32) {
         max_sq_size = MIN(max_sq_size, 32);
     } else if (pcs->slice_type == I_SLICE) {
@@ -1647,7 +1691,7 @@ static void is_parent_to_current_deviation_small(PictureControlSet* pcs, ModeDec
             svt_aom_get_qp_based_th_scaling_factors(pcs->scs->qp_based_th_scaling_ctrls.depths_qp_based_th_scaling,
                                                     &q_weight,
                                                     &q_weight_denom,
-                                                    pcs->scs->static_config.qp);
+                                                    svt_av1_get_effective_qp(pcs->scs, pcs->ppcs->picture_number).qp);
             s1_parent_to_current_th = s1_parent_to_current_th == (uint8_t)~0
                 ? MIN_SIGNED_VALUE
                 : DIVIDE_AND_ROUND(s1_parent_to_current_th * q_weight, q_weight_denom);
@@ -1726,7 +1770,7 @@ static void is_child_to_current_deviation_small(PictureControlSet* pcs, ModeDeci
             svt_aom_get_qp_based_th_scaling_factors(pcs->scs->qp_based_th_scaling_ctrls.depths_qp_based_th_scaling,
                                                     &q_weight,
                                                     &q_weight_denom,
-                                                    pcs->scs->static_config.qp);
+                                                    svt_av1_get_effective_qp(pcs->scs, pcs->ppcs->picture_number).qp);
             e1_sub_to_current_th = e1_sub_to_current_th == (uint8_t)~0
                 ? MIN_SIGNED_VALUE
                 : DIVIDE_AND_ROUND(e1_sub_to_current_th * q_weight, q_weight_denom);
@@ -2059,7 +2103,8 @@ static void recode_loop_decision_maker(PictureControlSet* pcs, SequenceControlSe
 
         // adjust SB qindex based on variance
         if (scs->static_config.enable_variance_boost) {
-            svt_av1_variance_adjust_qp(pcs);
+            // Don't readjust base qindex to make it play nice with the recode loop quality bookkeeping logic
+            svt_av1_variance_adjust_qp(pcs, false);
         }
 
         // 2pass QPM with tpl_la
@@ -2351,32 +2396,32 @@ static void pd0_detector_allintra(PictureControlSet* pcs, ModeDecisionContext* m
         return;
     }
 
-    uint16_t* sb_var = pcs->ppcs->variance[md_ctx->sb_index];
+    double* sb_var = pcs->ppcs->variance[md_ctx->sb_index];
 
     // Variance accumulation
-    int32_t var64 = sb_var[ME_TIER_ZERO_PU_64x64];
+    double var64 = sb_var[ME_TIER_ZERO_PU_64x64];
 
-    int32_t var32 = 0;
+    double var32 = 0;
     for (int i = ME_TIER_ZERO_PU_32x32_0; i <= ME_TIER_ZERO_PU_32x32_3; ++i) {
         var32 += sb_var[i];
     }
 
-    int32_t var16 = 0;
+    double var16 = 0;
     for (int i = ME_TIER_ZERO_PU_16x16_0; i <= ME_TIER_ZERO_PU_16x16_15; ++i) {
         var16 += sb_var[i];
     }
 
     // Normalize per block
-    var32 >>= 2; // 4 x 32x32
-    var16 >>= 4; // 16 x 16x16
+    var32 /= 4; // 4 x 32x32
+    var16 /= 16; // 16 x 16x16
 
     // Normalize per pixel
     const int32_t scale_32 = (64 * 64) / (32 * 32); // 4
     const int32_t scale_16 = (64 * 64) / (16 * 16); // 16
 
-    int32_t norm_v64 = var64;
-    int32_t norm_v32 = var32 * scale_32;
-    int32_t norm_v16 = var16 * scale_16;
+    int32_t norm_v64 = (int32_t)var64;
+    int32_t norm_v32 = (int32_t)(var32 * scale_32);
+    int32_t norm_v16 = (int32_t)(var16 * scale_16);
 
     // QP-scaled thresholds
     uint32_t q_weight, q_weight_denom;
@@ -2955,8 +3000,6 @@ EbErrorType svt_aom_mode_decision_kernel_iter(void* context) {
                         md_ctx->pred_depth_only = 1;
                     }
 
-                    const uint8_t saved_hbd_md = SVT_EFFECTIVE_HBD_MD(md_ctx->hbd_md);
-                    md_ctx->hbd_md             = 0;
                     // Multi-Pass PD
                     if (!skip_pd_pass_0 && pcs->ppcs->multi_pass_pd_level == MULTI_PASS_PD_ON) {
                         // [PD_PASS_0]
@@ -3014,7 +3057,6 @@ EbErrorType svt_aom_mode_decision_kernel_iter(void* context) {
                                                       md_ctx->sb_origin_y >> 2,
                                                       md_ctx->sb_origin_x >> 2);
                     }
-                    md_ctx->hbd_md = saved_hbd_md;
                     // [PD_PASS_1] Signal(s) derivation
                     ed_ctx->md_ctx->pd_pass = PD_PASS_1;
                     // This classifier is used for the case PD0 is bypassed and for pd0_level 2
@@ -3095,6 +3137,7 @@ EbErrorType svt_aom_mode_decision_kernel_iter(void* context) {
                         pcs->sb_max_sq_size[sb_index] = 0;
                     }
                     sb_ptr->final_blk_cnt = 0;
+                    sb_ptr->all_skip      = true;
                     svt_aom_encode_sb(scs,
                                       pcs,
                                       ed_ctx,
@@ -3103,6 +3146,7 @@ EbErrorType svt_aom_mode_decision_kernel_iter(void* context) {
                                       sb_ptr->ptree,
                                       md_ctx->sb_origin_y >> 2,
                                       md_ctx->sb_origin_x >> 2);
+                    svt_aom_update_intrabc_reference(pcs, sb_origin_x, sb_origin_y);
                     // free MD palette info buffer
                     if (pcs->ppcs->palette_level) {
                         const uint16_t max_block_cnt = scs->max_block_cnt;

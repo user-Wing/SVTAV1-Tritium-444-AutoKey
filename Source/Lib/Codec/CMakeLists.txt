@@ -98,6 +98,8 @@ set(all_files
         corner_detect.h
         corner_match.c
         corner_match.h
+        daala_dist.c
+        daala_dist.h
         deblocking_common.c
         deblocking_common.h
         deblocking_filter.c
@@ -204,6 +206,8 @@ set(all_files
         palette.c
         pass2_strategy.c
         pass2_strategy.h
+        noise_generation.c
+        noise_generation.h
         pic_analysis_process.c
         pic_analysis_process.h
         pic_analysis_results.c
@@ -234,6 +238,7 @@ set(all_files
         ac_bias.c
         ac_bias.h
         q_matrices.h
+        qm_psnr.h
         random.h
         ransac.c
         ransac.h

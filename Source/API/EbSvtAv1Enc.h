@@ -1,4 +1,4 @@
-﻿/*
+/*
 * Copyright(c) 2019 Intel Corporation
 *
 * This source code is subject to the terms of the BSD 3-Clause Clear License and
@@ -42,6 +42,8 @@ extern "C" {
 #endif
 #endif /* ATTRIBUTE_PACKED */
 typedef enum ATTRIBUTE_PACKED {
+    ENC_MRS        = -3, // Highest quality research mode (slowest)
+    ENC_MRP        = -2, // Previous research mode with quality/speed tradeoffs found in v1.8.0
     ENC_MR         = -1, //Research mode with higher quality than M0
     ENC_M0         = 0,
     ENC_M1         = 1,
@@ -204,18 +206,25 @@ typedef struct SvtAv1SFramePositions {
     int8_t*   sframe_qp_offsets;
 } SvtAv1SFramePositions;
 
+typedef struct SvtAv1QualityZone {
+    uint32_t start_frame; // inclusive
+    uint32_t end_frame; // inclusive
+    int      zone_baseq; // base CRF/CQP value for this zone
+    int      zone_qsidx; // quarter step index
+} SvtAv1QualityZone;
+
 // Will contain the EbEncApi which will live in the EncHandle class
 // Only modifiable during config-time.
 typedef struct EbSvtAv1EncConfiguration {
     /**
      * @brief Encoder preset used.
-     * -2 and -1 are for debug purposes and should not be used.
+     * -3, -2 and -1 are for research purposes and are extremely slow.
      * 0 is the highest quality mode but is the slowest,
      * 13 is the fastest mode but is not as high quality.
      *
-     * Min value is -2.
+     * Min value is -3.
      * Max value is 13.
-     * Default is 12.
+     * Default is 4.
      *
      * When PRESET_CHANGE_EVENT is used to change the preset on the fly, this
      * value is served as minimum possible preset value. The actual preset value
@@ -237,6 +246,7 @@ typedef struct EbSvtAv1EncConfiguration {
      *
      * Default is -2. */
     int32_t intra_period_length;
+
 
     /* Random access.
      *
@@ -308,14 +318,14 @@ typedef struct EbSvtAv1EncConfiguration {
      * 8 = 8 bit.
      * 10 = 10 bit.
      *
-     * Default is 8. */
+     * Default is 10 for SVT-AV1-HDR, mainline default is 8. */
     uint32_t encoder_bit_depth;
 
     /**
      * @brief Encoder color format.
-     * Only YUV420 is supported for now.
+     * YUV420 (Main Profile) and YUV444 (High Profile) are supported.
      *
-     * Min is YUV400.
+     * Supported values are YUV420 and YUV444.
      * Max is YUV444.
      * Default is YUV420.
      */
@@ -327,6 +337,8 @@ typedef struct EbSvtAv1EncConfiguration {
      * Min is MAIN_PROFILE.
      * Max is PROFESSIONAL_PROFILE.
      * Default is MAIN_PROFILE.
+     * MAIN_PROFILE is automatically promoted to HIGH_PROFILE for YUV444 input,
+     * with an informational log message. This does not convert the input format.
      */
     EbAv1SeqProfile profile;
     /* Constraints for bitstream in terms of max bitrate and max buffer size.
@@ -560,6 +572,7 @@ typedef struct EbSvtAv1EncConfiguration {
      * 0: disabled
      * 1: enabled
      * 2: more accurate (slower)
+     * 3: most accurate (very slow)
      */
     uint8_t enable_dlf_flag;
 
@@ -573,7 +586,7 @@ typedef struct EbSvtAv1EncConfiguration {
     * @brief Determines how much denoising is used.
     * Only applicable when film grain is ON.
     *
-    * 0 is no denoising
+    * 0 is no denoising (default)
     * 1 is full denoising
     *
     * Default is 0. */
@@ -601,7 +614,7 @@ typedef struct EbSvtAv1EncConfiguration {
      * CRF/CQP. intra_period_length is the maximum interval; scd_min_keyint
      * limits scene-triggered key frames. Ignored for all-intra encoding.
      *
-     * Default is 0. */
+     * Default is 1 (Tritium). */
     uint32_t scene_change_detection;
 
     /* Log 2 Tile Rows and columns . 0 means no tiling,1 means that we split the dimension
@@ -646,12 +659,13 @@ typedef struct EbSvtAv1EncConfiguration {
      * 0 = off
      * 1 = on
      * 2 = adaptive
+     * 3 = full
      * Default is 1. */
     uint8_t enable_tf;
 
     bool enable_overlays;
     /**
-     * @brief Tune for a particular metric; 0: VQ, 1: PSNR, 2: SSIM, 3: IQ (Image Quality), 4: MS-SSIM, 5: VMAF.
+     * @brief Tune for a particular metric; 0: VQ, 1: PSNR, 2: SSIM, 3: IQ (Image Quality), 4: MS-SSIM, 5: VMAF, 6: Film Grain.
      *
      * Default is 1.
      */
@@ -747,7 +761,7 @@ typedef struct EbSvtAv1EncConfiguration {
     /**
      * @brief Signal to the library to enable quantisation matrices
      *
-     * Default is false.
+     * Default is true in SVT-AV1-HDR.
      */
     bool enable_qm;
 
@@ -755,14 +769,14 @@ typedef struct EbSvtAv1EncConfiguration {
      * @brief Min quant matrix flatness. Applicable when enable_qm is true.
      * Min value is 0.
      * Max value is 15.
-     * Default is 8.
+     * Default is 6 in SVT-AV1-HDR, mainline default is 8.
      */
     uint8_t min_qm_level;
     /**
      * @brief Max quant matrix flatness. Applicable when enable_qm is true.
      * Min value is 0.
      * Max value is 15.
-     * Default is 15.
+     * Default is 10 in SVT-AV1-HDR, mainline default is 15.
      */
     uint8_t max_qm_level;
 
@@ -832,7 +846,7 @@ typedef struct EbSvtAv1EncConfiguration {
 
     /* Manually adjust temporal filtering strength
      * 10 + (4 - 0) = 14 (8x weaker)
-     * 10 + (4 - 1) = 13 (4x weaker, PSY default)
+     * 10 + (4 - 1) = 13 (4x weaker, SVT-AV1-HDR default)
      * 10 + (4 - 2) = 12 (2x weaker)
      * 10 + (4 - 3) = 11 (mainline default)
      * 10 + (4 - 4) = 10 (2x stronger) */
@@ -847,7 +861,7 @@ typedef struct EbSvtAv1EncConfiguration {
     /* Variance Boost
      * false = disable Variance Boost
      * true = enable Variance Boost
-     * Default is false. */
+     * Default is true in SVT-AV1-HDR. */
     bool enable_variance_boost;
     /* @brief Selects the curve strength to boost low variance regions according to a fast-growing formula
      * Default is 2 */
@@ -864,7 +878,7 @@ typedef struct EbSvtAv1EncConfiguration {
     /* @brief Bias towards decreased/increased sharpness in the deblocking loop filter & during rate distortion
      * Minimum value is -7 (less sharp).
      * Maximum value is 7 (more sharp).
-     * Default is 0 (medium sharpness). */
+     * Default is 1 in SVT-AV1-HDR, mainline default is 0. */
     int8_t sharpness;
 
     /* @brief Enable the user to configure which curve variance boost uses.
@@ -872,7 +886,8 @@ typedef struct EbSvtAv1EncConfiguration {
      *  0: default curve
      *  1: low-medium contrast boost curve
      *  2: still picture curve, tuned for SSIMULACRA2 performance on the CID22 Validation Set
-     *  Default is 0. */
+     *  3: PQ-optimized perceptual curve
+     *  Default is 0, or 3 if encoding PQ transfer content */
     uint8_t variance_boost_curve;
 
     /* @brief Frame-level luminance-based QP bias to improve quality in low luma scenarios
@@ -916,13 +931,8 @@ typedef struct EbSvtAv1EncConfiguration {
      */
     bool rtc;
 
-    /* @brief compresses the QP hierarchical layer scale to improve temporal video consistency
-    * 0: no compression, original SVT-AV1 scaling
-    * 1-3: enable compression, the higher the number the stronger the compression
-    *      (different frame quality fluctuation/mean quality tradeoffs)
-    * Default is 1
-    */
-    uint8_t qp_scale_compress_strength;
+    /* @brief unused field for QP scale compress strength, which is now a double */
+    uint8_t qp_scale_compress_strength_unused;
 
     /* @brief Indicates where to insert an S-Frame, only available when sframe_mode is SFRAME_FLEXIBLE_ARF */
     SvtAv1SFramePositions sframe_posi;
@@ -967,7 +977,7 @@ typedef struct EbSvtAv1EncConfiguration {
      * @brief Strength of the internal RD metric to bias toward high-frequency error (helps with texture preservation and film grain retention)
      * 0.00: disable AC bias
      * 1.00: enable AC bias with a strength of 1.00
-     * Default is 0.00.
+     * Default is 1.00 in SVT-AV1-HDR, mainline default is 0.00
      */
     double ac_bias;
 
@@ -1083,6 +1093,204 @@ typedef struct EbSvtAv1EncConfiguration {
      */
     uint32_t scd_min_keyint;
 
+    /**
+     * @brief Noise normalization strength; modifies the encoder's willingness
+     * to boost AC coefficients in low-noise blocks.
+     * Min value is 0.
+     * Max value is 4.
+     * Default is 1.
+     */
+    uint8_t noise_norm_strength;
+
+    /* Manually adjust TF strength on keyframes
+     * 0: disable alt-ref TF on keyframes
+     * 1: 10 + (4 - 1) = 13 (4x weaker, HDR default)
+     * 2: 10 + (4 - 2) = 12 (2x weaker)
+     * 3: 10 + (4 - 3) = 11 (mainline default)
+     * 4: 10 + (4 - 4) = 10 (2x stronger) */
+    uint8_t kf_tf_strength;
+
+    /**
+     * @brief Use alternative lambda factors
+     * false = use regular lambda factors
+     * true = use alternative lambda factors (from SVT-AV1 3.0.2)
+     * Default is false in SVT-AV1-HDR. */
+    bool alt_lambda_factors;
+
+    /**
+     * @brief Enable sharp-tx, a toggle that enables much sharper transforms decisions for higher fidelity ouput,
+     at the possible cost of increasing artifacting
+     * 0: disabled
+     * 1: enabled
+     * Default is 1
+     */
+    uint8_t sharp_tx;
+
+    /* @brief compresses the QP hierarchical layer scale to improve temporal video consistency
+     * 0.0: no compression, original SVT-AV1 scaling
+     * 0.0-8.0: enable compression, the higher the number the stronger the compression
+     *         (different frame quality fluctuation/mean quality tradeoffs)
+     * Default is 1.0 in SVT-AV1-HDR, mainline default is 0.0
+     */
+    double qp_scale_compress_strength;
+
+    /* @brief Alternative SSIM tuning, enables VQ enhancements and different rdmult calculations
+     * 0: disabled, use stock SSIM tuning
+     * 1: enabled, use alternative SSIM tuning with VQ enhacnements and different rdmult calculations
+     * Default is 0
+     */
+    bool alt_ssim_tuning;
+
+    /**
+     * @brief Transform size/type bias type
+     * 0: disabled
+     * 1: full
+     * 2: transform size only
+     * 3: interpolation filter tweaks only
+     * Default is 0
+     */
+    uint8_t tx_bias;
+
+    /**
+     * @brief Enable complex-hvs, a feature that enables the highest complexity and highest fidelity
+     HVS model at the cost of higher CPU time
+     * 0: default preset behavior
+     * 1: highest complexity HVS model (SSD-Psy)
+     * Default is 0
+     */
+    uint8_t complex_hvs;
+
+    /**
+     * @brief Controls noise detection for CDEF/restoration filtering
+     * 0: off
+     * 1: always-on noise-adaptive filters
+     * 2: default tune behavior
+     * 3: noise-adaptive CDEF only
+     * 4: noise-adaptive restoration filtering only
+     * Default is 2
+     */
+    uint8_t noise_adaptive_filtering;
+
+    /* @brief Controls scaling of the CDEF strength computation
+      *  1: minimum CDEF scaling
+      *  8: ~0.5x CDEF scaling
+      *  30: 2x CDEF scaling
+      *  Default is 15 (1x scaling). */
+    uint8_t cdef_scaling;
+
+    /**
+     * @brief Enables static noise table generation
+     *
+     * 0: off
+     * 1-200: noise strength
+     * Default is 0.
+     */
+    uint8_t noise_strength;
+
+    /**
+     * @brief Control whether chroma noise is scaled from luma or as a separate strength value
+     *
+     * -1: chroma noise strength is ~60% of noise_strength value
+     *  0: disable chroma noise
+     *  1-200: chroma noise strength
+     * Default is -1.
+     */
+    int32_t noise_strength_chroma;
+
+    /**
+     * @brief Check if color range is provided by the user
+     */
+    bool color_range_provided;
+
+    /**
+     * @brief Control the grain size of noise
+     *
+     * -1: auto adjustment based on resolution
+     *  0-13: adjust grain size
+     * Default is -1.
+     */
+    int8_t noise_size;
+
+    /*
+     * @brief Enable noise on chroma planes based on luma plane
+     *
+     * 0: off, chroma noise is applied based on chroma planes
+     * 1: on, chroma noise application is based on luma plane
+     * Default is 0.
+     */
+    uint8_t noise_chroma_from_luma;
+
+    /*
+     * QM-weighted transform distortion:
+     * -1: automatic (on for tune IQ),
+     *  0: PSNR,
+     *  1: QM-PSNR.
+     * */
+    int8_t enable_qmpsnr;
+
+    /* The min intra period defines the interval of frames before which a new
+     * Intra refresh can be inserted. It is strongly recommended to set the
+     * value to a multiple of the mini-gop size.
+     *
+     *  0 = no minimum (only relevant when scd=1).
+     * -1 = auto.
+     *
+     * Default is -1. */
+    int32_t min_intra_period_length;
+
+    /**
+     * @brief Signal to the library to automatically adjust tiles
+     *
+     * Default is true.
+     */
+    bool auto_tiling;
+
+    /* @brief Quality zones configuration
+     *
+     * Default is no zones.
+     */
+    SvtAv1QualityZone* quality_zones;
+    uint16_t           num_zones;
+
+    /**
+     * @brief Enable alternative CDEF biases
+     * 0: disabled
+     * 1-3: enabled
+     * Default is 0
+     */
+    uint8_t alt_cdef;
+
+    /**
+     * @brief Enable alternative DLF biases
+     * 0: disabled
+     * 1-3: enabled
+     * Default is 0
+     */
+    uint8_t alt_dlf;
+
+    /**
+     * @brief Enable Daala distortion metric.
+     * 0 = OFF
+     * 1 = CDEF
+     * 2 = 1 + TX Search + MDS3 Selection
+     * 3 = 2 + DCT TX
+     * 4 = 3 + MDS0 + IFS RD + OBMC
+     * Default is 0.
+     */
+    uint8_t enable_daala;
+
+    /* @brief use settings which reduce memory usage
+     *
+     * Default is false.
+     */
+    bool low_memory;
+
+    /* @brief do not print encoder parameters
+     *
+     * Default is false.
+     */
+    bool hide_banner;
+
     // clang-format off
     /* Add 128 Byte Padding to Struct to avoid changing the size of the public configuration struct */
     uint8_t padding[128
@@ -1095,6 +1303,31 @@ typedef struct EbSvtAv1EncConfiguration {
         - sizeof(uint8_t) // max_hierarchical_levels (runtime MG size change)
         - sizeof(uint8_t) // max_allowed_consecutive_frames_skips
         - sizeof(uint32_t) // scd_min_keyint
+        - sizeof(uint8_t) // noise_norm_strength
+        - sizeof(uint8_t) // kf_tf_strength
+        - sizeof(bool) // alt_lambda_factors
+        - sizeof(uint8_t) // sharp_tx
+        - sizeof(double) // qp_scale_compress_strength
+        - sizeof(bool) // alt_ssim_tuning
+        - sizeof(uint8_t) // tx_bias
+        - sizeof(uint8_t) // complex_hvs
+        - sizeof(uint8_t) // noise_adaptive_filtering
+        - sizeof(uint8_t) // cdef_scaling
+        - sizeof(uint8_t) // noise_strength
+        - sizeof(int32_t) // noise_strength_chroma
+        - sizeof(bool) // color_range_provided
+        - sizeof(int8_t) // noise_size
+        - sizeof(uint8_t) // noise_chroma_from_luma
+        - sizeof(int8_t) // enable_qmpsnr
+        - sizeof(bool) // auto_tiling
+        - sizeof(int32_t) // min_intra_period_length
+        - sizeof(SvtAv1QualityZone*) // quality_zones
+        - sizeof(uint16_t) // num_zones
+        - sizeof(uint8_t) // alt_cdef
+        - sizeof(uint8_t) // enable_daala
+        - sizeof(bool) // low_memory
+        - sizeof(bool) // hide_banner
+        - sizeof(uint8_t) // alt_dlf
     ];
     // clang-format on
 } EbSvtAv1EncConfiguration;
@@ -1104,6 +1337,12 @@ typedef struct EbSvtAv1EncConfiguration {
  * @param[out] SVT_AV1_CVS_VERSION
  */
 EB_API const char* svt_av1_get_version(void);
+
+/**
+ * Returns a string containing only the SVT-AV1-HDR micro-release letter
+ * @param[out] SVT_AV1_HDR_RELEASE
+ */
+EB_API const char* svt_hdr_get_version(void);
 
 /**
  * Prints the version header and build information to the file

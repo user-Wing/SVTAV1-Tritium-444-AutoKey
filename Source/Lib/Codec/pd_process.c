@@ -169,7 +169,7 @@ void svt_av1_setup_skip_mode_allowed(PictureParentControlSet* pcs) {
 #define CIRC_INC(val, start, end) (((int)(val + 1) > (int)(end)) ? (start) : (val) + 1)
 #define CIRC_DEC(val, start, end) ((((int)val - 1) < (int)(start)) ? (end) : (val) - 1)
 
-#define FLASH_TH 5
+#define FLASH_TH 7 // worth double-checking on many other / longer sources
 #define FADE_TH 3
 #define SCENE_TH 3000
 #define NUM64x64INPIC(w, h) ((w * h) >> (svt_log2f(BLOCK_SIZE_64) << 1))
@@ -4199,6 +4199,26 @@ static void mctf_frame(SequenceControlSet* scs, PictureParentControlSet* pcs, Pi
     if (scs->static_config.pred_structure != RANDOM_ACCESS && scs->tf_params_per_type[1].enabled) {
         low_delay_store_tf_pictures(scs, pcs, pd_ctx);
     }
+    if (!pcs->tf_ctrls.enabled && scs->static_config.enable_tf == 3) {
+        // Fallback: use appropriate TF params for frames that don't have TF enabled
+        int tf_type_index = MIN(pcs->temporal_layer_index, 2); // Cap at L2 params
+        if (tf_type_index == 0 && pcs->slice_type != I_SLICE) {
+            tf_type_index = 1; // Use BASE params for non-I frames at temporal layer 0
+        }
+        if (!scs->tf_params_per_type[tf_type_index].enabled) {
+            tf_type_index = 1; // Disabled L1 controls have no valid filtering window.
+        }
+
+        // Copy the TF parameters
+        pcs->tf_ctrls = scs->tf_params_per_type[tf_type_index];
+        pcs->tf_ctrls.enabled = 1;
+
+        // Reduce window size for higher temporal layers to avoid reference issues
+        if (pcs->temporal_layer_index > 2) {
+            pcs->tf_ctrls.num_past_pics = 1;
+            pcs->tf_ctrls.num_future_pics = 1;
+        }
+    }
     if (pcs->tf_ctrls.enabled) {
         derive_tf_window_params(scs, scs->enc_ctx, pcs, pd_ctx);
         pcs->temp_filt_prep_done = 0;
@@ -4706,7 +4726,7 @@ static void perform_scene_change_detection(SequenceControlSet* scs, PictureParen
         pcs->scene_change_flag = scene_transition_detector(ctx, scs, (PictureParentControlSet**)pcs->pd_window);
         const uint32_t min_keyint = scs->static_config.scd_min_keyint
             ? scs->static_config.scd_min_keyint
-            : (uint32_t)(1 << scs->static_config.hierarchical_levels);
+            : (uint32_t)scs->static_config.min_intra_period_length + 1;
         if (pcs->picture_number - ctx->last_scd_key_poc < min_keyint) {
             pcs->scene_change_flag = false;
         }
@@ -4719,9 +4739,11 @@ static void perform_scene_change_detection(SequenceControlSet* scs, PictureParen
             ctx->transition_detected = scene_transition_detector(ctx, scs, (PictureParentControlSet**)pcs->pd_window);
         }
     }
-
-    pcs->cra_flag = (pcs->scene_change_flag == true) ? true : pcs->cra_flag;
-
+    if (scs->static_config.intra_refresh_type == SVT_AV1_KF_REFRESH) {
+        pcs->idr_flag = (pcs->scene_change_flag == true) ? true : pcs->idr_flag;
+    } else {
+        pcs->cra_flag = (pcs->scene_change_flag == true) ? true : pcs->cra_flag;
+    }
     // Store scene change in context
     ctx->is_scene_change_detected = pcs->scene_change_flag;
 }
@@ -5462,20 +5484,18 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
         // If an #IntraPeriodLength has passed since the last Intra, then introduce a CRA or IDR based on Intra Refresh type
         else if (!scs->static_config.scene_change_detection && scs->static_config.intra_period_length != -1) {
             pcs->cra_flag = (scs->static_config.intra_refresh_type != SVT_AV1_FWDKF_REFRESH) ? pcs->cra_flag
-                : ((enc_ctx->intra_period_position == (uint32_t)scs->static_config.intra_period_length) ||
-                   (pcs->scene_change_flag == true))
+                : (enc_ctx->intra_period_position == (uint32_t)scs->static_config.intra_period_length)
                 ? true
                 : pcs->cra_flag;
 
-            pcs->idr_flag = (scs->static_config.intra_refresh_type != SVT_AV1_KF_REFRESH)            ? pcs->idr_flag
-                : enc_ctx->intra_period_position == (uint32_t)scs->static_config.intra_period_length ?
-
-                                                                                                     true
-                                                                                                     : pcs->idr_flag;
+            pcs->idr_flag = (scs->static_config.intra_refresh_type != SVT_AV1_KF_REFRESH) ? pcs->idr_flag
+                : enc_ctx->intra_period_position == (uint32_t)scs->static_config.intra_period_length
+                ? true
+                : pcs->idr_flag;
         }
         pcs->idr_flag = (scs->static_config.intra_refresh_type != SVT_AV1_KF_REFRESH)            ? pcs->idr_flag
-            : (pcs->scene_change_flag == true || pcs->input_ptr->pic_type == EB_AV1_KEY_PICTURE) ? true
-                                                                                                 : pcs->idr_flag;
+            : (pcs->input_ptr->pic_type == EB_AV1_KEY_PICTURE) ? true
+                                                               : pcs->idr_flag;
         if (!allintra && pcs->picture_number > 0 && scs->static_config.sframe_posi.sframe_posis &&
             (pcs->cra_flag || pcs->idr_flag)) {
             // if this key frame position is set to an S-frame by sframe-posi, replace this I frame with B frame,
@@ -5504,10 +5524,7 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
         enc_ctx->pre_assignment_buffer_count += 1;
 
         // Increment the Intra Period Position
-        enc_ctx->intra_period_position = ((enc_ctx->intra_period_position ==
-                                           (uint32_t)scs->static_config.intra_period_length) ||
-                                          (pcs->scene_change_flag == true) ||
-                                          pcs->input_ptr->pic_type == EB_AV1_KEY_PICTURE)
+        enc_ctx->intra_period_position = (pcs->idr_flag == true || pcs->cra_flag == true)
             ? 0
             : enc_ctx->intra_period_position + 1;
 

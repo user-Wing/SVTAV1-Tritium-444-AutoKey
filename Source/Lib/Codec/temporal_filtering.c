@@ -2691,9 +2691,10 @@ static EbErrorType produce_temporally_filtered_pic(PictureParentControlSet** pcs
     // Smaller q -> weaker filtering -> smaller weight.
 
     // Fixed-QP offsets are use here since final picture QP(s) are not generated @ this early stage
-    const int bit_depth            = scs->static_config.encoder_bit_depth;
-    int       active_best_quality  = 0;
-    int       active_worst_quality = quantizer_to_qindex[(uint8_t)scs->static_config.qp];
+    const int          bit_depth            = scs->static_config.encoder_bit_depth;
+    SvtAv1EffectiveQp effective_qp          = svt_av1_get_effective_qp(scs, centre_pcs->picture_number);
+    int                active_best_quality  = 0;
+    int                active_worst_quality = quantizer_to_qindex[effective_qp.qp];
     int       q;
     FP_ASSERT(TF_Q_DECAY_THRESHOLD == 20);
     int offset_idx;
@@ -2739,38 +2740,7 @@ static EbErrorType produce_temporally_filtered_pic(PictureParentControlSet** pcs
     // Get the frame update type for the current frame
     const uint32_t frame_update_type = svt_aom_get_frame_update_type(centre_pcs);
 
-    if (scs->static_config.enable_tf > 1) {
-        uint8_t adaptive_tf_shift_factor = calculate_tf_shift_factor(ctx);
-        assert(adaptive_tf_shift_factor <= 14);
-        const uint8_t kf_tf_shift_factor = CLIP3(0, 14, adaptive_tf_shift_factor + 1);
-        assert(kf_tf_shift_factor <= 14);
-
-        if (frame_update_type == SVT_AV1_KF_UPDATE && kf_tf_shift_factor == 14) {
-            ctx->tf_decay_factor_fp16[PLANE_Y] = 0;
-            ctx->tf_decay_factor_fp16[PLANE_U] = 0;
-            ctx->tf_decay_factor_fp16[PLANE_V] = 0;
-        } else if (frame_update_type == SVT_AV1_KF_UPDATE) {
-            svt_av1_calculate_decay_factor(ctx->tf_decay_factor_fp16,
-                                           &n_decay_fp10,
-                                           q_decay_fp8,
-                                           decay_control[PLANE_U],
-                                           decay_control[PLANE_V],
-                                           const_0dot7_fp16,
-                                           noise_levels_log1p_fp16,
-                                           kf_tf_shift_factor,
-                                           ctx->tf_chroma);
-        } else {
-            svt_av1_calculate_decay_factor(ctx->tf_decay_factor_fp16,
-                                           &n_decay_fp10,
-                                           q_decay_fp8,
-                                           decay_control[PLANE_U],
-                                           decay_control[PLANE_V],
-                                           const_0dot7_fp16,
-                                           noise_levels_log1p_fp16,
-                                           adaptive_tf_shift_factor,
-                                           ctx->tf_chroma);
-        }
-    } else {
+    if (scs->static_config.enable_tf != 2) {
         // tf_shift_factor is manually adjusted by the user via --tf-strength
         // 10 + (4 - 0) = 14 (8x weaker)
         // 10 + (4 - 1) = 13 (4x weaker)
@@ -2780,12 +2750,22 @@ static EbErrorType produce_temporally_filtered_pic(PictureParentControlSet** pcs
         const uint8_t tf_shift_factor = 10 + (4 - scs->static_config.tf_strength);
         assert(tf_shift_factor <= 14);
 
-        // kf_tf_shift_factor is 1 + tf strength when using Tune 0 (VQ)
-        uint8_t kf_tf_shift_factor = tf_shift_factor;
-        if (scs->vq_ctrls.sharpness_ctrls.tf) {
-            kf_tf_shift_factor = MIN(14, tf_shift_factor + 1);
-        }
+        // kf_tf_shift_factor is manually adjusted by the user via --kf-tf-strength
+        // 10 + (4 - (0)) = 14 (Disables alt-ref TF on keyframes)
+        // 10 + (4 - (1)) = 13 (4x weaker, HDR default)
+        // 10 + (4 - (2)) = 12 (2x weaker)
+        // 10 + (4 - (3)) = 11 (mainline default)
+        // 10 + (4 - (4)) = 10 (2x stronger)
+        const uint8_t kf_tf_shift_factor = 10 + (4 - scs->static_config.kf_tf_strength);
         assert(kf_tf_shift_factor <= 14);
+
+        /* mainline behavior: kf_tf_shift_factor is 1 + tf strength when using Tune 0 (VQ)
+        uint8_t kf_tf_shift_factor = tf_shift_factor;
+
+        if (scs->vq_ctrls.sharpness_ctrls.tf) {
+            kf_tf_shift_factor = MIN(14, kf_tf_shift_factor + 1);
+        }
+        */
 
         // when kf_tf_shift_factor is 14, we disable tf on keyframes
         if (frame_update_type == SVT_AV1_KF_UPDATE && kf_tf_shift_factor == 14) {
@@ -2946,23 +2926,57 @@ static EbErrorType produce_temporally_filtered_pic(PictureParentControlSet** pcs
                                                       ctx,
                                                       input_picture_ptr_central); // source picture
 
+                        // 64x64 Sub-Pel search
+                        tf_64x64_sub_pel_search(centre_pcs,
+                                                ctx,
+                                                pcs_list[frame_index],
+                                                list_input_picture_ptr[frame_index],
+                                                pred,
+                                                pred_16bit,
+                                                stride_pred,
+                                                src_center_ptr,
+                                                altref_buffer_highbd_ptr,
+                                                stride,
+                                                (uint32_t)blk_col * TF_BW,
+                                                (uint32_t)blk_row * TF_BH,
+                                                ss_x,
+                                                (ctx->tf_ctrls.use_8bit_subpel) ? EB_EIGHT_BIT : encoder_bit_depth);
+
+                        if (scs->static_config.enable_tf == 2) {
+                            uint8_t adaptive_tf_shift_factor = calculate_tf_shift_factor(ctx);
+                            assert(adaptive_tf_shift_factor <= 14);
+                            const uint8_t kf_tf_shift_factor = CLIP3(0, 14, adaptive_tf_shift_factor + 1);
+                            assert(kf_tf_shift_factor <= 14);
+
+                            if (frame_update_type == SVT_AV1_KF_UPDATE && kf_tf_shift_factor == 14) {
+                                ctx->tf_decay_factor_fp16[PLANE_Y] = 0;
+                                ctx->tf_decay_factor_fp16[PLANE_U] = 0;
+                                ctx->tf_decay_factor_fp16[PLANE_V] = 0;
+                            } else if (frame_update_type == SVT_AV1_KF_UPDATE) {
+                                svt_av1_calculate_decay_factor(ctx->tf_decay_factor_fp16,
+                                                               &n_decay_fp10,
+                                                               q_decay_fp8,
+                                                               decay_control[PLANE_U],
+                                                               decay_control[PLANE_V],
+                                                               const_0dot7_fp16,
+                                                               noise_levels_log1p_fp16,
+                                                               kf_tf_shift_factor,
+                                                               ctx->tf_chroma);
+                            } else {
+                                svt_av1_calculate_decay_factor(ctx->tf_decay_factor_fp16,
+                                                               &n_decay_fp10,
+                                                               q_decay_fp8,
+                                                               decay_control[PLANE_U],
+                                                               decay_control[PLANE_V],
+                                                               const_0dot7_fp16,
+                                                               noise_levels_log1p_fp16,
+                                                               adaptive_tf_shift_factor,
+                                                               ctx->tf_chroma);
+                            }
+                        }
+
                         if (ctx->tf_use_pred_64x64_only_th &&
                             (ctx->tf_use_pred_64x64_only_th == (uint8_t)~0 || tf_use_64x64_pred(ctx))) {
-                            tf_64x64_sub_pel_search(centre_pcs,
-                                                    ctx,
-                                                    pcs_list[frame_index],
-                                                    list_input_picture_ptr[frame_index],
-                                                    pred,
-                                                    pred_16bit,
-                                                    stride_pred,
-                                                    src_center_ptr,
-                                                    altref_buffer_highbd_ptr,
-                                                    stride,
-                                                    (uint32_t)blk_col * TF_BW,
-                                                    (uint32_t)blk_row * TF_BH,
-                                                    ss_x,
-                                                    (ctx->tf_ctrls.use_8bit_subpel) ? EB_EIGHT_BIT : encoder_bit_depth);
-
                             // Perform MC using the information acquired using the ME step
                             tf_64x64_inter_prediction(centre_pcs,
                                                       ctx,
@@ -2984,22 +2998,6 @@ static EbErrorType produce_temporally_filtered_pic(PictureParentControlSet** pcs
                                                              stride,
                                                              is_highbd);
                         } else {
-                            // 64x64 Sub-Pel search
-                            tf_64x64_sub_pel_search(centre_pcs,
-                                                    ctx,
-                                                    pcs_list[frame_index],
-                                                    list_input_picture_ptr[frame_index],
-                                                    pred,
-                                                    pred_16bit,
-                                                    stride_pred,
-                                                    src_center_ptr,
-                                                    altref_buffer_highbd_ptr,
-                                                    stride,
-                                                    (uint32_t)blk_col * TF_BW,
-                                                    (uint32_t)blk_row * TF_BH,
-                                                    ss_x,
-                                                    (ctx->tf_ctrls.use_8bit_subpel) ? EB_EIGHT_BIT : encoder_bit_depth);
-
                             // 32x32 Sub-Pel search
                             for (int block_row = 0; block_row < 2; block_row++) {
                                 for (int block_col = 0; block_col < 2; block_col++) {
@@ -3246,7 +3244,8 @@ static EbErrorType produce_temporally_filtered_pic_ld(PictureParentControlSet** 
         // Hyper-parameter for filter weight adjustment.
         decay_control = 3;
         // Decrease the filter strength for low QPs
-        if (scs->static_config.qp <= ALT_REF_QP_THRESH) {
+        SvtAv1EffectiveQp effective_qp = svt_av1_get_effective_qp(scs, centre_pcs->picture_number);
+        if (effective_qp.qp <= ALT_REF_QP_THRESH) {
             decay_control--;
         }
     }
@@ -3265,7 +3264,7 @@ static EbErrorType produce_temporally_filtered_pic_ld(PictureParentControlSet** 
     // Get the frame update type for the current frame
     const uint32_t frame_update_type = svt_aom_get_frame_update_type(centre_pcs);
 
-    if (scs->static_config.enable_tf > 1) {
+    if (scs->static_config.enable_tf == 2) {
         uint8_t adaptive_tf_shift_factor = calculate_tf_shift_factor(ctx);
         assert(adaptive_tf_shift_factor <= 14);
         const uint8_t kf_tf_shift_factor = CLIP3(0, 14, adaptive_tf_shift_factor + 1);
@@ -3306,12 +3305,22 @@ static EbErrorType produce_temporally_filtered_pic_ld(PictureParentControlSet** 
         const uint8_t tf_shift_factor = 10 + (4 - scs->static_config.tf_strength);
         assert(tf_shift_factor <= 14);
 
-        // kf_tf_shift_factor is 1 + tf strength when using Tune 0 (VQ)
-        uint8_t kf_tf_shift_factor = tf_shift_factor;
-        if (scs->vq_ctrls.sharpness_ctrls.tf) {
-            kf_tf_shift_factor = MIN(14, tf_shift_factor + 1);
-        }
+        // kf_tf_shift_factor is manually adjusted by the user via --kf-tf-strength
+        // 10 + (4 - (0)) = 14 (Disables alt-ref TF on keyframes)
+        // 10 + (4 - (1)) = 13 (4x weaker, HDR default)
+        // 10 + (4 - (2)) = 12 (2x weaker)
+        // 10 + (4 - (3)) = 11 (mainline default)
+        // 10 + (4 - (4)) = 10 (2x stronger)
+        const uint8_t kf_tf_shift_factor = 10 + (4 - scs->static_config.kf_tf_strength);
         assert(kf_tf_shift_factor <= 14);
+
+        /* mainline behavior: kf_tf_shift_factor is 1 + tf strength when using Tune 0 (VQ)
+        uint8_t kf_tf_shift_factor = tf_shift_factor;
+
+        if (scs->vq_ctrls.sharpness_ctrls.tf) {
+            kf_tf_shift_factor = MIN(14, kf_tf_shift_factor + 1);
+        }
+        */
 
         // when kf_tf_shift_factor is 14, we disable tf on keyframes
         if (frame_update_type == SVT_AV1_KF_UPDATE && kf_tf_shift_factor == 14) {

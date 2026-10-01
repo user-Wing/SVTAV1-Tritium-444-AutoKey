@@ -55,6 +55,7 @@
 #include "rc_results.h"
 #include "definitions.h"
 #include "metadata_handle.h"
+#include "noise_generation.h"
 
 #include "pack_unpack_c.h"
 #include "enc_mode_config.h"
@@ -569,7 +570,9 @@ static EbErrorType load_default_buffer_configuration_settings(SequenceControlSet
         scs->picture_control_set_pool_init_count       = 4;
         scs->pa_reference_picture_buffer_init_count    = 4;
         scs->tpl_reference_picture_buffer_init_count   = 0;
-        scs->output_recon_buffer_fifo_init_count       = 1;
+        // The single-thread dispatcher must queue both the image and recon EOS
+        // before returning control to the application to drain either buffer.
+        scs->output_recon_buffer_fifo_init_count       = scs->lp == 1 ? 2 : 1;
         scs->reference_picture_buffer_init_count       = 2;
         scs->picture_control_set_pool_init_count_child = 1;
         scs->enc_dec_pool_init_count                   = 1;
@@ -2463,20 +2466,64 @@ EB_API EbErrorType svt_av1_enc_deinit_handle(EbComponentType* svt_enc_component)
     return EB_ErrorInvalidComponent;
 }
 
-// Sets the default intra period the closest possible to 1 second without breaking the minigop
+// Sets the default intra period the closest possible to 10 seconds without breaking the minigop
 static int32_t compute_default_intra_period(SequenceControlSet* scs) {
     EbSvtAv1EncConfiguration* config = &scs->static_config;
 
     double  fps           = scs->frame_rate;
     int32_t mini_gop_size = (1 << (config->hierarchical_levels));
 
-    // use a 5-sec gop by default.
-    int32_t intra_period = (int)((fps + mini_gop_size) / mini_gop_size) * mini_gop_size * 5;
+    // If mini_gop_size = 32, pretend that the minigop size is 16 instead
+    // The calculated intra period will result in either one of these outcomes:
+    // - intra_period is mod 16: every minigop will be 32 except the very last one (i.e. 16)
+    // - intra_period is mod 32: every minigop will be 32 including the very last one
+    if (mini_gop_size == 32) {
+        mini_gop_size = 16;
+    }
+
+    /* Use a 10-sec GOP by default (SVT-AV1-HDR) */
+    int32_t intra_period = (((int)(fps * 10 + mini_gop_size - 1) / mini_gop_size) * (mini_gop_size));
+
+    // Cap intra period to the nearest one that has at least 300 frames that doesn't break the minigop
+    // (to avoid gops that are too big and could cause seeking issues with some players)
+    if (intra_period > 300) {
+        if (mini_gop_size >= 8) {
+            intra_period = 304;
+        } else {
+            // if mini_gop_size <= 4, 300 will result in complete minigops
+            intra_period = 300;
+        }
+    }
+
     if (config->intra_refresh_type == 1) {
         intra_period -= 1;
     }
 
     return intra_period;
+}
+
+static int32_t compute_default_min_intra_period(SequenceControlSet* scs) {
+    EbSvtAv1EncConfiguration* config = &scs->static_config;
+
+    double  fps           = scs->frame_rate;
+    int32_t mini_gop_size = (1 << (config->hierarchical_levels));
+
+    // If mini_gop_size = 32, pretend that the minigop size is 16 instead
+    // The calculated intra period will result in either one of these outcomes:
+    // - min_intra_period is mod 16: every minigop will be 32 except the very last one (i.e. 16)
+    // - min_intra_period is mod 32: every minigop will be 32 including the very last one
+    if (mini_gop_size == 32) {
+        mini_gop_size = 16;
+    }
+
+    // ~1-sec min-intra
+    int32_t min_intra_period = (((int)(fps + mini_gop_size - 1) / mini_gop_size) * (mini_gop_size));
+
+    if (config->intra_refresh_type == 1) {
+        min_intra_period -= 1;
+    }
+
+    return min_intra_period;
 }
 
 /*
@@ -2688,7 +2735,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[0].use_2tap                = 0;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[0].me_exit_th              = 0;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 0;
@@ -2716,7 +2763,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 0;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[1].me_exit_th              = 0;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 0;
@@ -2744,7 +2791,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[2].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[2].use_2tap                = 0;
         scs->tf_params_per_type[2].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[2].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[2].use_8bit_subpel         = 0;
         scs->tf_params_per_type[2].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[2].me_exit_th              = 0;
         scs->tf_params_per_type[2].subpel_early_exit_th    = 0;
@@ -2771,7 +2818,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[0].use_2tap                = 0;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[0].me_exit_th              = 0;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 0;
@@ -2799,7 +2846,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 0;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[1].me_exit_th              = 0;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 0;
@@ -2827,7 +2874,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[2].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[2].use_2tap                = 0;
         scs->tf_params_per_type[2].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[2].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[2].use_8bit_subpel         = 0;
         scs->tf_params_per_type[2].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[2].me_exit_th              = 0;
         scs->tf_params_per_type[2].subpel_early_exit_th    = 0;
@@ -2854,7 +2901,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[0].use_2tap                = 0;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[0].me_exit_th              = 0;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 0;
@@ -2883,7 +2930,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 0;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[1].me_exit_th              = 0;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 0;
@@ -2912,7 +2959,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[2].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[2].use_2tap                = 0;
         scs->tf_params_per_type[2].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[2].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[2].use_8bit_subpel         = 0;
         scs->tf_params_per_type[2].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[2].me_exit_th              = 0;
         scs->tf_params_per_type[2].subpel_early_exit_th    = 0;
@@ -2938,7 +2985,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[0].use_2tap                = 0;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[0].me_exit_th              = 0;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 1;
@@ -2967,7 +3014,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 0;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[1].me_exit_th              = 0;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 1;
@@ -2996,7 +3043,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[2].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[2].use_2tap                = 0;
         scs->tf_params_per_type[2].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[2].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[2].use_8bit_subpel         = 0;
         scs->tf_params_per_type[2].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[2].me_exit_th              = 0;
         scs->tf_params_per_type[2].subpel_early_exit_th    = 0;
@@ -3022,7 +3069,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[0].use_2tap                = 1;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[0].me_exit_th              = 0;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 1;
@@ -3051,7 +3098,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 1;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[1].me_exit_th              = 0;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 1;
@@ -3080,7 +3127,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[2].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[2].use_2tap                = 1;
         scs->tf_params_per_type[2].use_intra_for_noise_est = 0;
-        scs->tf_params_per_type[2].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[2].use_8bit_subpel         = 0;
         scs->tf_params_per_type[2].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[2].me_exit_th              = 0;
         scs->tf_params_per_type[2].subpel_early_exit_th    = 1;
@@ -3106,7 +3153,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 1;
         scs->tf_params_per_type[0].use_2tap                = 1;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[0].me_exit_th              = 0;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 1;
@@ -3134,7 +3181,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 1;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 0;
         scs->tf_params_per_type[1].me_exit_th              = 0;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 1;
@@ -3162,7 +3209,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 1;
         scs->tf_params_per_type[0].use_2tap                = 1;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 35;
         scs->tf_params_per_type[0].me_exit_th              = 16 * 16;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 1;
@@ -3190,7 +3237,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 0;
         scs->tf_params_per_type[1].use_2tap                = 1;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 35;
         scs->tf_params_per_type[1].me_exit_th              = 16 * 16;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 1;
@@ -3218,7 +3265,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 1;
         scs->tf_params_per_type[0].use_2tap                = 1;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 35;
         scs->tf_params_per_type[0].me_exit_th              = 16 * 16;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 4;
@@ -3246,7 +3293,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 1;
         scs->tf_params_per_type[1].use_2tap                = 1;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 35;
         scs->tf_params_per_type[1].me_exit_th              = 16 * 16;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 4;
@@ -3274,7 +3321,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[0].avoid_2d_qpel           = 1;
         scs->tf_params_per_type[0].use_2tap                = 1;
         scs->tf_params_per_type[0].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[0].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[0].use_8bit_subpel         = 0;
         scs->tf_params_per_type[0].use_pred_64x64_only_th  = 35;
         scs->tf_params_per_type[0].me_exit_th              = 16 * 16;
         scs->tf_params_per_type[0].subpel_early_exit_th    = 4;
@@ -3302,7 +3349,7 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
         scs->tf_params_per_type[1].avoid_2d_qpel           = 1;
         scs->tf_params_per_type[1].use_2tap                = 1;
         scs->tf_params_per_type[1].use_intra_for_noise_est = 1;
-        scs->tf_params_per_type[1].use_8bit_subpel         = 1;
+        scs->tf_params_per_type[1].use_8bit_subpel         = 0;
         scs->tf_params_per_type[1].use_pred_64x64_only_th  = 35;
         scs->tf_params_per_type[1].me_exit_th              = 16 * 16;
         scs->tf_params_per_type[1].subpel_early_exit_th    = 4;
@@ -3326,7 +3373,8 @@ void tf_controls(SequenceControlSet* scs, uint8_t tf_level) {
 static void derive_vq_params(SequenceControlSet* scs) {
     VqCtrls* vq_ctrl = &scs->vq_ctrls;
 
-    if (scs->static_config.tune == TUNE_VQ) {
+    if (scs->static_config.tune == TUNE_VQ || scs->static_config.tune == TUNE_FILM_GRAIN ||
+        (scs->static_config.alt_ssim_tuning && scs->static_config.tune == TUNE_SSIM)) {
         // Sharpness
         vq_ctrl->sharpness_ctrls.scene_transition = 1;
         vq_ctrl->sharpness_ctrls.tf               = 1;
@@ -3345,6 +3393,31 @@ static void derive_vq_params(SequenceControlSet* scs) {
         vq_ctrl->sharpness_ctrls.restoration      = 0;
         vq_ctrl->sharpness_ctrls.rdoq             = 0;
     }
+
+    switch (scs->static_config.noise_adaptive_filtering) {
+    case 0:
+        vq_ctrl->sharpness_ctrls.cdef        = 0;
+        vq_ctrl->sharpness_ctrls.restoration = 0;
+        break;
+    case 1:
+        vq_ctrl->sharpness_ctrls.cdef        = 1;
+        vq_ctrl->sharpness_ctrls.restoration = 1;
+        break;
+    case 2:
+        // No override; honor tune defaults
+        break;
+    case 3:
+        vq_ctrl->sharpness_ctrls.cdef        = 1;
+        vq_ctrl->sharpness_ctrls.restoration = 0;
+        break;
+    case 4:
+        vq_ctrl->sharpness_ctrls.cdef        = 0;
+        vq_ctrl->sharpness_ctrls.restoration = 1;
+        break;
+    default:
+        break;
+    }
+
     // Do not use scene_transition if LD or 1st pass or middle pass
     if (scs->static_config.pred_structure != RANDOM_ACCESS || scs->static_config.pass == ENC_FIRST_PASS) {
         vq_ctrl->sharpness_ctrls.scene_transition = 0;
@@ -3356,8 +3429,10 @@ static void derive_vq_params(SequenceControlSet* scs) {
  */
 static void derive_tf_params(SequenceControlSet* scs) {
     const uint32_t hierarchical_levels = scs->static_config.hierarchical_levels;
-    // Do not perform TF if LD or 1 Layer or 1st pass
-    const bool    do_tf    = scs->static_config.enable_tf && hierarchical_levels >= 1 && !scs->static_config.lossless;
+    // Filtering changes the source even when every coded frame uses qindex zero.
+    const bool qp0 = scs->static_config.rate_control_mode == 0 && scs->static_config.qp == 0 &&
+        !scs->static_config.use_qp_file;
+    const bool do_tf = scs->static_config.enable_tf && hierarchical_levels >= 1 && !scs->static_config.lossless && !qp0;
     const EncMode enc_mode = scs->static_config.enc_mode;
     uint8_t       tf_level = 0;
     if (scs->static_config.pred_structure == LOW_DELAY) {
@@ -4089,7 +4164,7 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
 
         // special conditions for higher resolutions in order to decrease memory usage for tpl_lad_mg
         if (scs->input_resolution >= INPUT_SIZE_8K_RANGE) {
-            tpl_lad_mg = 0;
+            tpl_lad_mg = MIN(1, tpl_lad_mg);
         }
         scs->tpl_lad_mg = MIN(
             2, tpl_lad_mg); // lad_mg is capped to 2 because tpl was optimised only for 1,2 and 3 mini-gops
@@ -4129,6 +4204,11 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
     if (scs->static_config.sframe_dist != 0 || scs->static_config.sframe_posi.sframe_posis) {
         scs->super_block_size = 64;
     }
+    // Full-resolution chroma uses 64x64 superblocks: at most four 32x32
+    // chroma transforms per coding block, without enlarging 4:2:0 metadata.
+    if (scs->static_config.encoder_color_format == EB_YUV444) {
+        scs->super_block_size = 64;
+    }
     // Set config info related to SB size
     if (scs->super_block_size == 128) {
         scs->seq_header.sb_size      = BLOCK_128X128;
@@ -4155,16 +4235,78 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
             "Aggressive Variance Boost strength used. This is a curve that's only useful under specific situations. "
             "Use with caution!\n");
     }
+    if (scs->static_config.enable_daala >= 1 && scs->static_config.cdef_level != 0) {
+        if (scs->static_config.alt_cdef) {
+            SVT_WARN("Daala CDEF is enabled; alt-cdef will be disabled.\n");
+            scs->static_config.alt_cdef = 0;
+        }
+        if (scs->static_config.cdef_scaling != 15) {
+            SVT_WARN("Daala CDEF is enabled; cdef-scaling will be ignored.\n");
+            scs->static_config.cdef_scaling = 15;
+        }
+    }
+    if (scs->static_config.cdef_level != 0 && scs->static_config.alt_cdef > 1 && !(scs->static_config.pred_structure == LOW_DELAY)) {
+        SVT_WARN("CDEF level is set to 1, or full CDEF decision, when alt-cdef is >= 2\n");
+        scs->static_config.cdef_level = 1;
+    }
+    if (scs->static_config.alt_cdef && scs->static_config.cdef_scaling != 15) {
+        SVT_WARN("alt-cdef is enabled; cdef-scaling will be ignored.\n");
+        scs->static_config.cdef_scaling = 15;
+    }
+    if (scs->static_config.enable_dlf_flag != 0 && scs->static_config.alt_dlf > 1 && !(scs->static_config.pred_structure == LOW_DELAY)) {
+        SVT_WARN("DLF level is set to 1, or full DLF decision, when alt-dlf is >= 2\n");
+        scs->static_config.enable_dlf_flag = 3;
+    }
     if (scs->static_config.max_tx_size == 32 && scs->static_config.qp >= 25 && scs->static_config.tune != 3) {
         SVT_WARN(
             "Restricting transform sizes to a max of 32x32 might reduce coding efficiency at low to medium fidelity "
             "settings. Use with caution!\n");
+    }
+    if (scs->static_config.alt_ssim_tuning && scs->static_config.tune != TUNE_SSIM) {
+        SVT_WARN("Alternative SSIM tuning only applies to tune 2 (SSIM)!\n");
     }
     if (scs->static_config.intra_refresh_type == SVT_AV1_FWDKF_REFRESH && scs->static_config.hierarchical_levels != 4) {
         scs->static_config.hierarchical_levels = 4;
         SVT_WARN(
             "Fwd key frame is only supported for hierarchical levels 4 at this point. Hierarchical levels are set to "
             "4\n");
+    }
+    if (scs->static_config.noise_strength > 0) {
+        // Check if film-grain-denoise is also enabled (should be disabled if fgs_table is present)
+        if (scs->static_config.film_grain_denoise_strength > 0) {
+            SVT_WARN(
+                "Both film-grain-denoise and noise strength were specified; film-grain-denoise will be disabled.\n");
+            scs->static_config.film_grain_denoise_strength = 0;
+        }
+        // Check if fgs_table is present
+        if (scs->static_config.fgs_table) {
+            SVT_WARN(
+                "Both noise strength and fgs-table were specified; build-in noise table generation will be "
+                "disabled.\n");
+            scs->static_config.noise_strength         = 0;
+            scs->static_config.noise_strength_chroma  = -1;
+            scs->static_config.noise_chroma_from_luma = 0;
+            scs->static_config.noise_size             = -1;
+        } else {
+            if (scs->static_config.noise_strength_chroma == 0 && scs->static_config.noise_chroma_from_luma == 1) {
+                SVT_WARN("Noise chroma from luma setting has no effect when chroma noise strength is set to 0.\n");
+                scs->static_config.noise_chroma_from_luma = 0;
+            }
+            svt_av1_generate_noise_table(&scs->static_config);
+        }
+    } else {
+        if (scs->static_config.noise_strength_chroma != -1) {
+            SVT_WARN("Chroma noise strength signal is going to be ignored when noise strength level is 0.\n");
+            scs->static_config.noise_strength_chroma = -1;
+        }
+        if (scs->static_config.noise_chroma_from_luma == 1) {
+            SVT_WARN("Noise chroma from luma signal is going to be ignored when noise strength level is 0.\n");
+            scs->static_config.noise_chroma_from_luma = 0;
+        }
+        if (scs->static_config.noise_size != -1) {
+            SVT_WARN("Noise size signal is going to be ignored when noise strength level is 0.\n");
+            scs->static_config.noise_size = -1;
+        }
     }
     bool    disallow_nsq  = true;
     uint8_t allow_HVA_HVB = 0;
@@ -4204,6 +4346,10 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
     } else {
         disallow_4x4 = svt_aom_get_disallow_4x4_default(scs->static_config.enc_mode);
         disallow_8x8 = svt_aom_get_disallow_8x8_default();
+    }
+    if (scs->static_config.encoder_color_format == EB_YUV444) {
+        // QP 0 can require 4x4 coding blocks regardless of the preset.
+        disallow_4x4 = disallow_8x8 = false;
     }
     if (scs->super_block_size == 128) {
         if (!allow_HVA_HVB && disallow_4x4) {
@@ -4295,10 +4441,18 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
         scs->enable_hbd_mode_decision = 0;
     }
 
-    // Throws a warning when scene change is on, as the feature is not optimal and may produce false detections
-    if (scs->static_config.scene_change_detection == 1) {
-        SVT_WARN("Scene Change is not optimal and may produce suboptimal keyframe placements\n");
-    }
+    // LTR DPB-layout constraint: the natural mrp_level may not provide enough
+    // STORE-safe DPB slots for the configured max_managed_refs. Override to
+    // the cheapest level that does, preferring to preserve non_base list0
+    // count (non_base refs are consulted by every TID>0 frame). RTC-tuned
+    // non-flat-IPP per-preset native capacity:
+    //
+    //   M9   → level 6 (list0 3/3) → ld_reduce 0 → 2 STOREs  (insufficient)
+    //   M10  → level 9 (list0 3/1) → ld_reduce 0 → 2 STOREs  (insufficient)
+    //   M11+ → level 0 (list0 1/1) → ld_reduce 2 → 4 STOREs  (native)
+    //
+    // Fallback choice: level 8 (list0 2/2) when non_base ≥ 2, else level 10
+    // (list0 2/1). See src/Docs/Appendix-Ref-Frame-Management.md §5.
     set_mrp_ctrl(scs, &scs->mrp_ctrls, scs->static_config.enc_mode);
 
     // Snapshot; PRESET_CHANGE_EVENT clamps against this.
@@ -4349,6 +4503,7 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     // Padding Offsets
     scs->b64_size                          = 64;
     scs->static_config.intra_period_length = config_struct->intra_period_length;
+    scs->static_config.min_intra_period_length = config_struct->min_intra_period_length;
     scs->static_config.avif                = config_struct->avif;
     scs->allintra                          = (scs->static_config.intra_period_length == 0 || scs->static_config.avif ||
                      scs->static_config.pred_structure == ALL_INTRA);
@@ -4456,15 +4611,24 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     }
     scs->seq_header.film_grain_params_present = (uint8_t)(scs->static_config.film_grain_denoise_strength > 0);
     scs->static_config.fgs_table              = config_struct->fgs_table;
+    scs->static_config.noise_strength         = config_struct->noise_strength;
+    scs->static_config.noise_strength_chroma  = config_struct->noise_strength_chroma;
+    scs->static_config.noise_chroma_from_luma = config_struct->noise_chroma_from_luma;
+    scs->static_config.noise_size             = config_struct->noise_size;
 
     // MD Parameters
     scs->enable_hbd_mode_decision = SVT_EFFECTIVE_BIT_DEPTH(config_struct->encoder_bit_depth) > 8 ? DEFAULT : 0;
+    // Auto tiling
+    scs->static_config.auto_tiling = config_struct->auto_tiling;
     {
         if (config_struct->tile_rows == DEFAULT && config_struct->tile_columns == DEFAULT) {
             scs->static_config.tile_rows    = 0;
             scs->static_config.tile_columns = 0;
 
         } else {
+            if (scs->static_config.auto_tiling) {
+                SVT_WARN("Tiles set manually will be ignored when auto tiling is enabled!\n");
+            }
             if (config_struct->tile_rows == DEFAULT) {
                 scs->static_config.tile_rows    = 0;
                 scs->static_config.tile_columns = config_struct->tile_columns;
@@ -4476,7 +4640,23 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
                 scs->static_config.tile_columns = config_struct->tile_columns;
             }
         }
+        if (scs->static_config.auto_tiling) {
+            uint32_t max_dim = scs->max_input_luma_width > scs->max_input_luma_height ?
+                               scs->max_input_luma_width : scs->max_input_luma_height;
+            bool is_vertical = scs->max_input_luma_height > scs->max_input_luma_width;
+
+            if (max_dim >= 3840) {
+                scs->static_config.tile_rows = is_vertical ? 2 : 0;
+                scs->static_config.tile_columns = is_vertical ? 0 : 2;
+            }
+            else if (max_dim >= 1920) {
+                scs->static_config.tile_rows = is_vertical ? 1 : 0;
+                scs->static_config.tile_columns = is_vertical ? 0 : 1;
+            }
+        }
     }
+
+    scs->static_config.low_memory = config_struct->low_memory;
 
     // Rate Control
     scs->static_config.scene_change_detection = scs->allintra ? 0 : config_struct->scene_change_detection;
@@ -4496,7 +4676,20 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     scs->static_config.tune                = config_struct->tune;
     scs->static_config.hierarchical_levels = config_struct->hierarchical_levels;
 
-    // Set the default hierarchical levels
+    if (scs->static_config.rtc && scs->static_config.hierarchical_levels == 0) {
+        scs->static_config.hierarchical_levels = HIERARCHICAL_LEVELS_AUTO;
+    }
+    // Set hierarchical_levels to 2 to reduce memory allocation; 2 is the minimum currently supported
+    if (scs->allintra) {
+        scs->static_config.hierarchical_levels = 2;
+    } else if (scs->static_config.low_memory) {
+        scs->lad_mg = 0;
+        if (scs->static_config.hierarchical_levels == HIERARCHICAL_LEVELS_AUTO) {
+            scs->static_config.hierarchical_levels = 4;
+        }
+        SVT_WARN("Low memory mode active. Reducing --lp can decrease memory usage further at the cost of speed.\n");
+    }
+    // Set the default hierarchical levels otherwise
     if (scs->static_config.hierarchical_levels == HIERARCHICAL_LEVELS_AUTO) {
         scs->static_config.hierarchical_levels = scs->static_config.pred_structure == LOW_DELAY &&
                 (scs->static_config.rate_control_mode == SVT_AV1_RC_MODE_CBR ||
@@ -4515,10 +4708,6 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
             scs->static_config.hierarchical_levels = 2;
             SVT_WARN("Low delay CBR supports hierarchical_levels [0-2]. Forced hierarchical_levels = 2.\n");
         }
-    }
-    // Set hierarchical_levels to 2 to reduce memory allocation; 2 is the minimum currently supported
-    if (scs->allintra) {
-        scs->static_config.hierarchical_levels = 2;
     }
     scs->static_config.look_ahead_distance    = config_struct->look_ahead_distance;
     scs->static_config.frame_rate_denominator = config_struct->frame_rate_denominator;
@@ -4617,7 +4806,13 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
         }
     }
     // Annex A parameters
-    scs->static_config.profile     = config_struct->profile;
+    scs->static_config.profile = config_struct->profile;
+    // The default Main Profile cannot signal full-resolution chroma. Resolve
+    // this in the library so API, raw, Y4M and pipe inputs behave identically.
+    if (scs->static_config.profile == MAIN_PROFILE && scs->chroma_format_idc == EB_YUV444) {
+        scs->static_config.profile = HIGH_PROFILE;
+        SVT_INFO("4:4:4 input: automatically selecting High Profile (profile 1)\n");
+    }
     scs->static_config.tier        = config_struct->tier;
     scs->static_config.level       = config_struct->level;
     scs->static_config.stat_report = config_struct->stat_report;
@@ -4656,6 +4851,19 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
         scs->allintra = (scs->static_config.intra_period_length == 0 || scs->static_config.avif);
     } else if (scs->static_config.multiply_keyint) {
         scs->static_config.intra_period_length = (int32_t)(scs->frame_rate * scs->static_config.intra_period_length);
+    }
+    if (scs->allintra) {
+        scs->static_config.min_intra_period_length = 0;
+    } else {
+        if (scs->static_config.scd_min_keyint) {
+            scs->static_config.min_intra_period_length = (int32_t)scs->static_config.scd_min_keyint - 1;
+        } else if (scs->static_config.min_intra_period_length == -1) {
+            scs->static_config.min_intra_period_length = (1 << scs->static_config.hierarchical_levels) - 1;
+            if (scs->static_config.intra_period_length >= 0) {
+                scs->static_config.min_intra_period_length = MIN(scs->static_config.min_intra_period_length,
+                                                              scs->static_config.intra_period_length);
+            }
+        }
     }
     if (scs->static_config.look_ahead_distance == (uint32_t)~0) {
         scs->static_config.look_ahead_distance = compute_default_look_ahead(&scs->static_config);
@@ -4731,6 +4939,7 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     scs->static_config.transfer_characteristics = config_struct->transfer_characteristics;
     scs->static_config.matrix_coefficients      = config_struct->matrix_coefficients;
     scs->static_config.color_range              = config_struct->color_range;
+    scs->static_config.color_range_provided     = config_struct->color_range_provided;
     scs->static_config.chroma_sample_position   = config_struct->chroma_sample_position;
     scs->static_config.mastering_display        = config_struct->mastering_display;
     scs->static_config.content_light_level      = config_struct->content_light_level;
@@ -4823,6 +5032,57 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     scs->seq_header.frame_id_numbers_present_flag = scs->static_config.max_managed_refs > 0;
 
     scs->static_config.max_allowed_consecutive_frames_skips = config_struct->max_allowed_consecutive_frames_skips;
+    // Noise normalization strength
+    scs->static_config.noise_norm_strength = config_struct->noise_norm_strength;
+    //Alt-ref keyframe temporal filtering strength
+    scs->static_config.kf_tf_strength = config_struct->kf_tf_strength;
+
+    // Alt lambda factors
+    scs->static_config.alt_lambda_factors = config_struct->alt_lambda_factors;
+
+    // Sharp TX
+    scs->static_config.sharp_tx = config_struct->sharp_tx;
+
+    // Alternative SSIM tuning
+    scs->static_config.alt_ssim_tuning = config_struct->alt_ssim_tuning;
+
+    // TX bias
+    scs->static_config.tx_bias = config_struct->tx_bias;
+
+    // Complex HVS
+    scs->static_config.complex_hvs = config_struct->complex_hvs;
+
+    // Noise adaptive filtering
+    scs->static_config.noise_adaptive_filtering = config_struct->noise_adaptive_filtering;
+
+    // CDEF scaling
+    scs->static_config.cdef_scaling = config_struct->cdef_scaling;
+
+    // Resolve the metric after tune selection, preserving an explicit disable.
+    scs->static_config.enable_qmpsnr = config_struct->enable_qmpsnr == -1 ? scs->static_config.tune == TUNE_IQ
+                                                                          : config_struct->enable_qmpsnr;
+
+    // Alt CDEF
+    scs->static_config.alt_cdef = config_struct->alt_cdef;
+
+    // Alt DLF
+    scs->static_config.alt_dlf = config_struct->alt_dlf;
+
+    // Daala
+    scs->static_config.enable_daala = config_struct->enable_daala;
+
+    // Zones
+    if (config_struct->quality_zones && config_struct->num_zones > 0) {
+        EB_NO_THROW_MALLOC(scs->static_config.quality_zones, sizeof(SvtAv1QualityZone) * config_struct->num_zones);
+        memcpy(scs->static_config.quality_zones,
+               config_struct->quality_zones,
+               sizeof(SvtAv1QualityZone) * config_struct->num_zones);
+    } else {
+        scs->static_config.quality_zones = NULL;
+    }
+    scs->static_config.num_zones = config_struct->num_zones;
+
+    scs->static_config.hide_banner = config_struct->hide_banner;
 
     // Override settings for Still IQ tune
     if (scs->static_config.tune == TUNE_IQ) {
@@ -4832,7 +5092,7 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
         scs->static_config.enable_qm               = 1;
         scs->static_config.min_qm_level            = 4;
         scs->static_config.max_qm_level            = 10;
-        scs->static_config.min_chroma_qm_level     = 4;
+        scs->static_config.min_chroma_qm_level     = scs->allintra && scs->chroma_format_idc == EB_YUV444 ? 2 : 4;
         scs->static_config.max_chroma_qm_level     = 10;
         scs->static_config.sharpness               = 7;
         scs->static_config.enable_variance_boost   = 1;
@@ -4845,7 +5105,7 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
         scs->static_config.enable_qm               = 1;
         scs->static_config.min_qm_level            = 4;
         scs->static_config.max_qm_level            = 10;
-        scs->static_config.min_chroma_qm_level     = 4;
+        scs->static_config.min_chroma_qm_level     = scs->allintra && scs->chroma_format_idc == EB_YUV444 ? 2 : 4;
         scs->static_config.max_chroma_qm_level     = 10;
         scs->static_config.sharpness               = 7;
         scs->static_config.enable_variance_boost   = 1;
@@ -4854,6 +5114,27 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     } else if (scs->static_config.tune == TUNE_VMAF) {
         SVT_WARN("Tune VMAF: a pre-processing / unsharp masking is applied\n");
     }
+    // Override settings for Film Grain tune
+    if (scs->static_config.tune == TUNE_FILM_GRAIN) {
+        SVT_WARN("Tune 6: Film Grain is opinionated! Works best with 1080p, 4k and 8k content.\n");
+        SVT_WARN(
+            "Tune 6: Film Grain turns off: TF, CDEF, rest. filtering, and enables complex HVS, TX bias and strong AC "
+            "bias.\n");
+        scs->static_config.enable_tf                    = 0;
+        scs->static_config.cdef_level                   = 0;
+        scs->static_config.enable_restoration_filtering = 0;
+        scs->static_config.complex_hvs                  = 1;
+        scs->static_config.ac_bias                      = 4.0;
+        scs->static_config.tx_bias                      = 1;
+    }
+
+    // Override Variance Boost curve for PQ transfer
+    if (scs->static_config.enable_variance_boost &&
+        scs->static_config.transfer_characteristics == EB_CICP_TC_SMPTE_2084) {
+        SVT_INFO("HDR content with PQ transfer detected, switching to PQ-optimized curve\n");
+        scs->static_config.variance_boost_curve = 3;
+    }
+
     return;
 }
 
@@ -4938,7 +5219,9 @@ EB_API EbErrorType svt_av1_enc_set_parameter(EbComponentType*          svt_enc_c
     }
     return_error = load_default_buffer_configuration_settings(scs);
 
-    svt_av1_print_lib_params(scs);
+    if (!scs->static_config.hide_banner) {
+        svt_av1_print_lib_params(scs);
+    }
 
     // free frame scale events after copy to encoder
     if (config_struct->frame_scale_evts.resize_denoms) {
@@ -4963,6 +5246,12 @@ EB_API EbErrorType svt_av1_enc_set_parameter(EbComponentType*          svt_enc_c
         EB_FREE(config_struct->sframe_posi.sframe_posis);
     }
     memset(&config_struct->sframe_posi, 0, sizeof(SvtAv1SFramePositions));
+
+    if (config_struct->quality_zones) {
+        EB_FREE(config_struct->quality_zones);
+    }
+    config_struct->quality_zones = NULL;
+    config_struct->num_zones     = 0;
 
     return return_error;
 }
@@ -5909,12 +6198,19 @@ EB_API const char* svt_av1_get_version(void) {
     return SVT_AV1_CVS_VERSION;
 }
 
+EB_API const char* svt_hdr_get_version(void) {
+    return SVT_AV1_HDR_RELEASE;
+}
+
 EB_API void svt_av1_print_version(void) {
     SVT_INFO("-------------------------------------------\n");
-    SVT_INFO("SVT [version]:\tSVT-AV1 Encoder Lib %s\n", SVT_AV1_CVS_VERSION);
+    SVT_INFO("SVT [version]:\tSVT-AV1-Tritium Encoder Lib %s \"Ghost Robot\"\n", SVT_AV1_CVS_VERSION);
     const char* compiler =
-#if defined(__clang__)
+#if defined(__clang__) && defined(__apple_build_version__)
         __VERSION__ "\t"
+#elif defined(__clang__)
+        "Clang " CONVERT_TO_STR_COMPILE_TIME(__clang_major__) "." CONVERT_TO_STR_COMPILE_TIME(
+            __clang_minor__) "." CONVERT_TO_STR_COMPILE_TIME(__clang_patchlevel__) "\t"
 #elif defined(__GNUC__)
         "GCC " __VERSION__ "\t"
 #elif defined(_MSC_VER) && (_MSC_VER >= 1950)

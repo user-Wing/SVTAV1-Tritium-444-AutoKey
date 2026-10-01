@@ -1815,6 +1815,7 @@ static void update_b(PictureControlSet* pcs, EncDecContext* ctx, BlkStruct* blk_
         pcs->sb_max_sq_size[sb_index] = MAX(blk_geom->sq_size, pcs->sb_max_sq_size[sb_index]);
     }
     ctx->tot_total_rate += blk_ptr->total_rate;
+    sb_ptr->all_skip &= !blk_ptr->block_has_coeff;
 
     // If needed, copy recon and qcoeffs from MD buffers to EC buffers and update coeff-related CDFs
     if (pcs->cdf_ctrl.update_coef || (md_ctx->bypass_encdec && !(md_ctx->fixed_partition))) {
@@ -2003,7 +2004,7 @@ static void encode_b(PictureControlSet* pcs, EncDecContext* ctx, BlkStruct* blk_
     /* ED should use the skip decision from MD. If MD signals 0 coeffs, the TX will
     be bypassed unless MD did not perform chroma (blk_skip_decision) or the block is an
     INTRA block (since the prediction at MD may not be conformant). */
-    ctx->md_skip_blk         = md_ctx->blk_skip_decision
+    ctx->md_skip_blk         = !svt_av1_is_lossless_segment(pcs, blk_ptr->segment_id) && md_ctx->blk_skip_decision
                 ? ((is_intra_mode(blk_ptr->block_mi.mode) || blk_ptr->block_has_coeff) ? 0 : 1)
                 : 0;
     blk_ptr->block_has_coeff = 0;

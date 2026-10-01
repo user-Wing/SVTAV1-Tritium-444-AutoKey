@@ -226,14 +226,12 @@ EbErrorType read_y4m_header(EbConfig* cfg) {
     cfg->config.encoder_bit_depth      = bitdepth;
     cfg->mmap.y4m_seq_hdr              = ftell(cfg->input_file);
 
-    /* TODO: when implemented, need to set input bit depth
-        (instead of the encoder bit depth) and chroma format */
-
-    if (strcmp("420", chroma)) {
-        fprintf(cfg->error_log_file,
-                "Error: %s chroma format not supported, only 420 is supported at this "
-                "time.\n",
-                chroma);
+    if (!strcmp("420", chroma)) {
+        cfg->config.encoder_color_format = EB_YUV420;
+    } else if (!strcmp("444", chroma)) {
+        cfg->config.encoder_color_format = EB_YUV444;
+    } else {
+        fprintf(cfg->error_log_file, "Error: %s chroma format not supported; use 420 or 444.\n", chroma);
         return EB_ErrorBadParameter;
     }
 
@@ -246,6 +244,9 @@ size_t read_y4m_frame_delimiter(FILE* input_file, FILE* error_log_file) {
     char buffer_y4m_header[YFM_HEADER_MAX] = {0};
 
     if (!fgets(buffer_y4m_header, sizeof(buffer_y4m_header), input_file)) {
+        if (feof(input_file)) {
+            return 0;
+        }
         fprintf(error_log_file, "Failed to read y4m frame delimiter. Read broken. EOF: %i\n", feof(input_file));
         return 0;
     }

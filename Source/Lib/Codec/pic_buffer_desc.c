@@ -516,6 +516,8 @@ EbErrorType svt_recon_picture_buffer_desc_ctor(EbPictureBufferDesc* pic_buf, EbP
 }
 
 void svt_aom_link_eb_to_aom_buffer_desc_8bit(EbPictureBufferDesc* picBuffDsc, Yv12BufferConfig* aomBuffDsc) {
+    const int ss_x = picBuffDsc->color_format == EB_YUV444 ? 0 : 1;
+    const int ss_y = picBuffDsc->color_format >= EB_YUV422 ? 0 : 1;
     // Forces an 8 bit version
     // Note: Not all fields are connected. Add more connections as needed.
     {

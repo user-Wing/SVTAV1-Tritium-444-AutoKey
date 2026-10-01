@@ -854,7 +854,8 @@ typedef struct PictureParentControlSet {
     // Pre Analysis
     EbObjectWrapper* ref_pa_pic_ptr_array[MAX_NUM_OF_REF_PIC_LIST][REF_LIST_MAX_DEPTH];
     uint64_t         ref_pic_poc_array[MAX_NUM_OF_REF_PIC_LIST][REF_LIST_MAX_DEPTH];
-    uint16_t**       variance;
+    double**         variance;
+    uint64_t*        mean;
     uint32_t         pre_assignment_buffer_count;
     uint16_t         pic_avg_variance;
 
@@ -1247,7 +1248,7 @@ typedef struct PictureControlSetInitData {
     bool    allintra;
     bool    adaptive_film_grain;
     bool    use_flat_ipp;
-    int     hbd_mds;
+    int hbd_mds;
 } PictureControlSetInitData;
 
 /**************************************

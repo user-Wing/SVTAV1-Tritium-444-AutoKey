@@ -149,6 +149,7 @@ static void mode_decision_context_dctor(EbPtr p) {
     EB_DELETE(obj->temp_residual);
     EB_DELETE(obj->temp_recon_ptr);
     EB_FREE_ARRAY(obj->full_cost_ssim_array);
+    EB_FREE_ARRAY(obj->full_cost_daala_array);
 }
 
 void svt_aom_set_nics(SequenceControlSet* scs, NicScalingCtrls* scaling_ctrls, uint32_t mds1_count[CAND_CLASS_TOTAL],
@@ -227,7 +228,10 @@ EbErrorType svt_aom_mode_decision_context_ctor(ModeDecisionContext* ctx, Sequenc
     ctx->init_max_block_cnt     = max_block_cnt;
     uint32_t block_max_count_sb = max_block_cnt;
 
-    ctx->sb_size = sb_size;
+    ctx->sb_size       = sb_size;
+    ctx->subsampling_x = scs->subsampling_x;
+    ctx->subsampling_y = scs->subsampling_y;
+
     ctx->dctor  = mode_decision_context_dctor;
     ctx->hbd_md = enable_hbd_mode_decision;
 
@@ -404,16 +408,19 @@ EbErrorType svt_aom_mode_decision_context_ctor(ModeDecisionContext* ctx, Sequenc
     EB_MALLOC_ARRAY(ctx->fast_cost_array, ctx->max_nics_uv);
     EB_MALLOC_ARRAY(ctx->full_cost_array, ctx->max_nics_uv);
     EB_MALLOC_ARRAY(ctx->full_cost_ssim_array, ctx->max_nics_uv);
+    EB_MALLOC_ARRAY(ctx->full_cost_daala_array, ctx->max_nics_uv);
     // Candidate Buffers
     EB_NEW(ctx->cand_bf_tx_depth_1,
            svt_aom_mode_decision_scratch_cand_bf_ctor,
            sb_size,
+           color_format,
            SVT_EFFECTIVE_HBD_MD(ctx->hbd_md) ? EB_TEN_BIT : EB_EIGHT_BIT);
 
     EB_ALLOC_PTR_ARRAY(ctx->cand_bf_tx_depth_1->cand, 1);
     EB_NEW(ctx->cand_bf_tx_depth_2,
            svt_aom_mode_decision_scratch_cand_bf_ctor,
            sb_size,
+           color_format,
            SVT_EFFECTIVE_HBD_MD(ctx->hbd_md) ? EB_TEN_BIT : EB_EIGHT_BIT);
 
     EB_ALLOC_PTR_ARRAY(ctx->cand_bf_tx_depth_2->cand, 1);
@@ -489,7 +496,7 @@ EbErrorType svt_aom_mode_decision_context_ctor(ModeDecisionContext* ctx, Sequenc
     bool    disallow_8x8     = allintra ? svt_aom_get_disallow_8x8_allintra()
                : rtc_tune ? svt_aom_get_disallow_8x8_rtc(enc_mode, scs->max_input_luma_width, scs->max_input_luma_height)
                           : svt_aom_get_disallow_8x8_default();
-    uint8_t min_bsize        = disallow_8x8 ? 16 : disallow_4x4 ? 8 : 4;
+    uint8_t min_bsize        = color_format == EB_YUV444 ? 4 : disallow_8x8 ? 16 : disallow_4x4 ? 8 : 4;
     int     blocks_per_depth = (sb_size / min_bsize) * (sb_size / min_bsize);
     int     blocks_to_alloc  = 0;
 
@@ -688,7 +695,8 @@ EbErrorType svt_aom_mode_decision_context_ctor(ModeDecisionContext* ctx, Sequenc
                                                                  ctx->temp_recon_ptr,
                                                                  &(ctx->fast_cost_array[buffer_index]),
                                                                  &(ctx->full_cost_array[buffer_index]),
-                                                                 &(ctx->full_cost_ssim_array[buffer_index]));
+                                                                 &(ctx->full_cost_ssim_array[buffer_index]),
+                                                                 &(ctx->full_cost_daala_array[buffer_index]));
         if (cbf_err != EB_ErrorNone) {
             return cbf_err;
         }
@@ -746,7 +754,13 @@ static void av1_lambda_assign_md(PictureControlSet* pcs, ModeDecisionContext* ct
 
     if (!pcs->scs->static_config.rtc && pcs->scs->stats_based_sb_lambda_modulation) {
         if (pcs->temporal_layer_index > 0) {
-            if (pcs->ref_intra_percentage < LAMBDA_MOD_INTRA_TH) {
+            //Alternate LAMBDA_MOD_INTRA_TH to revert the change that was added
+            //in svt-av1 >=3.0.0 and improve low light performance a bit.
+            //Otherwise, use the standard LAMBDA_MOD_INTRA_TH
+            const int lambda_mod_intra_threshold = pcs->scs->static_config.alt_lambda_factors ? 65
+                                                                                              : LAMBDA_MOD_INTRA_TH;
+
+            if (pcs->ref_intra_percentage < lambda_mod_intra_threshold) {
                 ctx->full_lambda_md[0] = (ctx->full_lambda_md[0] * LAMBDA_MOD_INTRA_SCALING_FACTOR) >> 7;
                 ctx->fast_lambda_md[0] = (ctx->fast_lambda_md[0] * LAMBDA_MOD_INTRA_SCALING_FACTOR) >> 7;
                 ctx->full_lambda_md[1] = (ctx->full_lambda_md[1] * LAMBDA_MOD_INTRA_SCALING_FACTOR) >> 7;

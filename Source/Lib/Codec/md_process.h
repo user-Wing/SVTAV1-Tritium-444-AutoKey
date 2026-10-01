@@ -802,6 +802,8 @@ typedef struct TxShortcutCtrls {
 } TxShortcutCtrls;
 
 typedef struct Mds0Ctrls {
+    // Distortion metric to use MDS0: SSD, VAR
+    uint8_t mds0_dist_type;
     // 0: disabled, > 0: switch between: (1) reset reference cost for each subsequent class, (2) continuously update reference cost, (uint8_t) ~0: continuously update reference cost
     uint8_t pruning_method_th;
     // % TH(s) used to compare candidate distortion to best cost; higher is safer (applies to reg. PD1 only)
@@ -908,6 +910,8 @@ typedef struct PC_TREE {
 
 typedef struct ModeDecisionContext {
     EbDctor dctor;
+    uint8_t subsampling_x;
+    uint8_t subsampling_y;
 
     EbFifo*                       mode_decision_configuration_input_fifo_ptr;
     EbFifo*                       mode_decision_output_fifo_ptr;
@@ -971,6 +975,7 @@ typedef struct ModeDecisionContext {
     uint64_t* fast_cost_array;
     uint64_t* full_cost_array;
     uint64_t* full_cost_ssim_array;
+    uint64_t* full_cost_daala_array;
     // Lambda
     uint32_t fast_lambda_md[2];
     uint32_t full_lambda_md[2];
@@ -1292,6 +1297,7 @@ typedef struct ModeDecisionContext {
     // SSIM_LVL_1: use ssim cost to find best candidate in product_full_mode_decision()
     // SSIM_LVL_2: addition to level 1, also use ssim cost to find best tx type in tx_type_search()
     SsimLevel tune_ssim_level;
+    uint8_t   tune_daala_level;
     // OBMC control signals (flags related to OBMC prediction readiness and bit depth)
     bool obmc_weighted_pred_ready; // Flag indicating if weighted prediction is prepared
     bool obmc_neighbor_luma_pred_ready; // Flag indicating if luma neighbor prediction is prepared

@@ -287,9 +287,8 @@ static int crf_qindex_calc(PictureControlSet* pcs, RATE_CONTROL* rc, int qindex)
             weight = MIN(weight + 0.1, 1);
         }
 
-        double qstep_ratio = sqrt(ppcs->r0) * weight *
-            svt_av1_qp_scale_compress_weight[scs->static_config.qp_scale_compress_strength];
-        if (scs->static_config.qp_scale_compress_strength) {
+        double qstep_ratio = sqrt(ppcs->r0) * weight * (1.000 + scs->static_config.qp_scale_compress_strength * 0.125);
+        if (scs->static_config.qp_scale_compress_strength > 0.0) {
             // clamp qstep_ratio so it doesn't get past the weight value
             qstep_ratio = MIN(weight, qstep_ratio);
         }
@@ -364,6 +363,7 @@ static int crf_qindex_calc(PictureControlSet* pcs, RATE_CONTROL* rc, int qindex)
     return active_best_quality;
 }
 
+#if !TUNE_CQP_CHROMA_SSIM
 /******************************************************
  * non_base_boost
  * Compute a non-base frame boost.
@@ -383,6 +383,7 @@ static int8_t non_base_boost(PictureControlSet* pcs) {
     }
     return q_boost;
 }
+#endif
 
 /******************************************************
  * cqp_qindex_calc
@@ -406,7 +407,7 @@ static int cqp_qindex_calc(PictureControlSet* pcs, int qindex) {
     if (pcs->temporal_layer_index == 0) {
         double qratio_grad = ppcs->hierarchical_levels <= 4 ? 0.3 : 0.2;
         double qstep_ratio = (0.2 + (1.0 - (double)active_worst_quality / MAXQ) * qratio_grad) *
-            qp_scale_compress_weight[scs->static_config.qp_scale_compress_strength];
+            (1.000 + scs->static_config.qp_scale_compress_strength * 0.125);
         q = scs->cqp_base_q = svt_av1_get_q_index_from_qstep_ratio(active_worst_quality, qstep_ratio, bit_depth);
     } else if (ppcs->is_ref && pcs->temporal_layer_index < ppcs->hierarchical_levels) {
         int this_height = ppcs->temporal_layer_index + 1;
@@ -465,9 +466,11 @@ void svt_av1_rc_calc_qindex_crf_cqp(PictureControlSet* pcs, SequenceControlSet* 
     PictureParentControlSet* ppcs     = pcs->ppcs;
     QuantizationParams*      q_params = &ppcs->frm_hdr.quantization_params;
 
-    uint8_t scs_qp = ppcs->is_startup_gop ? clamp_qp(scs, scs->static_config.qp + scs->static_config.startup_qp_offset)
-                                          : (uint8_t)scs->static_config.qp;
-    int     scs_qindex = clamp_qindex(scs, quantizer_to_qindex[scs_qp] + scs->static_config.extended_crf_qindex_offset);
+    SvtAv1EffectiveQp effective_qp = svt_av1_get_effective_qp(scs, ppcs->picture_number);
+    uint8_t           scs_qp       = ppcs->is_startup_gop
+              ? clamp_qp(scs, effective_qp.qp + scs->static_config.startup_qp_offset)
+              : effective_qp.qp;
+    int scs_qindex = clamp_qindex(scs, quantizer_to_qindex[scs_qp] + effective_qp.qindex_offset);
 
     // if RC mode is 0, fixed QP is used
     // QP scaling based on POC number for Flat IPPP structure
@@ -479,6 +482,8 @@ void svt_av1_rc_calc_qindex_crf_cqp(PictureControlSet* pcs, SequenceControlSet* 
     if (ppcs->qp_on_the_fly) {
         new_qindex = quantizer_to_qindex[ppcs->picture_qp];
     } else {
+        int  active_ext_crf_qindex_offset = effective_qp.extended_crf_qindex_offset;
+        bool active_qp_is_max             = effective_qp.qp_is_max;
         if (scs->enable_qp_scaling_flag) {
             // if CRF
             if (ppcs->tpl_ctrls.enable) {
@@ -486,7 +491,7 @@ void svt_av1_rc_calc_qindex_crf_cqp(PictureControlSet* pcs, SequenceControlSet* 
                     rc->active_worst_quality = scs_qindex;
                     svt_av1_rc_init(scs);
                 }
-                new_qindex = crf_qindex_calc(pcs, rc, rc->active_worst_quality);
+                new_qindex = crf_qindex_calc(pcs, rc, effective_qp.from_zone ? scs_qindex : rc->active_worst_quality);
             } else { // if CQP
                 new_qindex = cqp_qindex_calc(pcs, scs_qindex);
             }
@@ -506,8 +511,8 @@ void svt_av1_rc_calc_qindex_crf_cqp(PictureControlSet* pcs, SequenceControlSet* 
         }
 
         // Extended CRF range (63.25 - 70), add offset to compress QP scaling
-        if (scs->static_config.qp == MAX_QP_VALUE && scs->static_config.extended_crf_qindex_offset) {
-            new_qindex += (MAXQ - new_qindex) * scs->static_config.extended_crf_qindex_offset / 56;
+        if (active_qp_is_max && active_ext_crf_qindex_offset) {
+            new_qindex += (MAXQ - new_qindex) * active_ext_crf_qindex_offset / 56;
             new_qindex = clamp_qindex(scs, new_qindex);
         }
 
@@ -537,23 +542,58 @@ void svt_av1_rc_calc_qindex_crf_cqp(PictureControlSet* pcs, SequenceControlSet* 
     }
 
     // Calculate chroma qindex
-    int32_t chroma_qindex = new_qindex;
+    int32_t chroma_qindex    = new_qindex;
+    int32_t chroma_ac_qindex = new_qindex;
     if (frame_is_intra_only(ppcs)) {
         chroma_qindex += scs->static_config.key_frame_chroma_qindex_offset;
     } else {
         chroma_qindex += scs->static_config.chroma_qindex_offsets[pcs->temporal_layer_index];
     }
 
+    const int32_t chroma_qindex_adjustment = chroma_qindex;
     if (scs->static_config.tune == TUNE_IQ) {
-        // Constant chroma boost with gradual ramp-down for very high qindex levels
-        chroma_qindex -= CLIP3(0, 16, new_qindex / 2 - 14);
+        if (scs->static_config.encoder_color_format == EB_YUV420) {
+            chroma_qindex -= CLIP3(0, 12, (chroma_qindex_adjustment / 2) - 14);
+            chroma_ac_qindex -= CLIP3(0, 12, (chroma_qindex_adjustment / 2) - 14);
+        } else {
+            chroma_qindex -= CLIP3(0, 4, (chroma_qindex_adjustment / 2));
+            chroma_ac_qindex += CLIP3(0, 20, (chroma_qindex_adjustment / 2));
+        }
     }
-    chroma_qindex = clamp_qindex(scs, chroma_qindex);
+
+    const int32_t cicp_rampdown = (chroma_qindex_adjustment / 6) - 8;
+    // Boost chroma on PQ transfer with ramp down
+    if (scs->static_config.transfer_characteristics == EB_CICP_TC_SMPTE_2084) {
+        chroma_qindex -= CLIP3(0, 4, cicp_rampdown);
+        chroma_ac_qindex -= CLIP3(0, 4, cicp_rampdown);
+    }
+
+    // Boost chroma on wide color (P3) primary with ramp down
+    if (scs->static_config.color_primaries == EB_CICP_CP_SMPTE_431 ||
+        scs->static_config.color_primaries == EB_CICP_CP_SMPTE_432) {
+        chroma_qindex -= CLIP3(0, 4, cicp_rampdown);
+        chroma_ac_qindex -= CLIP3(0, 4, cicp_rampdown);
+    }
+
+    // Boost chroma on wide color (BT.2020) primary with ramp down
+    if (scs->static_config.color_primaries == EB_CICP_CP_BT_2020) {
+        chroma_qindex -= CLIP3(0, 8, cicp_rampdown);
+        chroma_ac_qindex -= CLIP3(0, 8, cicp_rampdown);
+    }
+
+    const int32_t global_offset_rampdown = chroma_qindex_adjustment / 6;
+    const int32_t u_dc_qindex = clamp_qindex(scs, chroma_qindex + CLIP3(0, 4, global_offset_rampdown)) - new_qindex;
+    const int32_t u_ac_qindex = clamp_qindex(scs, chroma_ac_qindex + CLIP3(0, 4, global_offset_rampdown)) - new_qindex;
+    const int32_t v_dc_qindex = clamp_qindex(scs, chroma_qindex - CLIP3(0, 8, global_offset_rampdown)) - new_qindex;
+    const int32_t v_ac_qindex = clamp_qindex(scs, chroma_ac_qindex - CLIP3(0, 8, global_offset_rampdown)) - new_qindex;
 
     // Calculate chroma delta q for Cb and Cr
-    q_params->delta_q_dc[1] = q_params->delta_q_ac[1] = CLIP3(-64, 63, chroma_qindex - new_qindex);
-    q_params->delta_q_dc[2] = q_params->delta_q_ac[2] = CLIP3(-64, 63, chroma_qindex - new_qindex);
-    if (scs->static_config.tune == TUNE_VMAF) {
+    q_params->delta_q_dc[1] = new_qindex > 0 ? CLIP3(-64, 63, u_dc_qindex) : 0;
+    q_params->delta_q_ac[1] = new_qindex > 0 ? CLIP3(-64, 63, u_ac_qindex) : 0;
+    q_params->delta_q_dc[2] = new_qindex > 0 ? CLIP3(-64, 63, v_dc_qindex) : 0;
+    q_params->delta_q_ac[2] = new_qindex > 0 ? CLIP3(-64, 63, v_ac_qindex) : 0;
+
+    if (scs->static_config.tune == TUNE_VMAF && new_qindex > 0) {
         const int   cfg_offset         = frame_is_intra_only(ppcs)
                       ? scs->static_config.key_frame_chroma_qindex_offset
                       : scs->static_config.chroma_qindex_offsets[pcs->temporal_layer_index];

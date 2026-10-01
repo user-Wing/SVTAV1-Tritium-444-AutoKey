@@ -28,7 +28,8 @@ The encoder parameters are listed in this table below along with their
 | **StatFile**                       | --stat-file          | any string   | None          | PSNR / SSIM per picture stat output file path, requires `--enable-stat-report 1`                                  |
 | **Progress**                       | --progress           | [0-2]        | 1             | Verbosity of the output [0: no progress is printed, 1: default output, 2: detailed output]                        |
 | **NoProgress**                     | --no-progress        | [0-1]        | 0             | Do not print out progress [1: `--progress 0`, 0: `--progress 1`]                                                  |
-| **EncoderMode**                    | --preset             | [-1-13]      | 8             | Encoder preset, presets < 0 are for debugging. Higher presets means faster encodes, but with a quality tradeoff   |
+| **HideBanner**                     | --hide-banner        | [0-1]        | 0             | Do not print out encoder parameters [0: params are printed (Default), 1: no param is printed]                     |
+| **EncoderMode**                    | --preset             | [-3-13]      | 4             | Encoder preset, presets < 0 are for research purposes. Higher presets means faster encodes, but with a quality tradeoff |
 | **SvtAv1Params**                   | --svtav1-params      | any string   | None          | Colon-separated list of `key=value` pairs of parameters with keys based on command line options without `--`      |
 
 #### Usage of **SvtAv1Params**
@@ -62,21 +63,24 @@ For more information on valid values for specific keys, refer to the [EbEncSetti
 | **FrameToBeEncoded**             | -n                          | [0-`(2^63)-1`]                 | 0           | Number of frames to encode. If `n` is larger than the input, the encoder will loop back and continue encoding |
 | **FrameToBeSkipped**             | --skip                      | [0-`(2^63)-1`]                 | 0           | Number of frames to skip. |
 | **BufferedInput**                | --nb                        | [-1, 1-`(2^31)-1`]             | -1          | Buffer `n` input frames into memory and use them to encode. Only buffered frames will be encoded.             |
-| **EncoderColorFormat**           | --color-format              | [0-3]                          | 1           | Color format, only yuv420 is supported at this time [0: yuv400, 1: yuv420, 2: yuv422, 3: yuv444]              |
+| **EncoderColorFormat**           | --color-format              | [0-3]                          | 1           | Color format, yuv420 and yuv444 are supported. [0: yuv400, 1: yuv420, 2: yuv422, 3: yuv444]                   |
 | **Profile**                      | --profile                   | [0-2]                          | 0           | Bitstream profile [0: main, 1: high, 2: professional]                                                         |
 | **Level**                        | --level                     | [0,2.0-7.3]                    | 0           | Bitstream level, defined in A.3 of the av1 spec [0: auto]                                                     |
 | **FrameRateNumerator**           | --fps-num                   | [0-2^32-1]                     | 60000       | Input video frame rate numerator                                                                              |
 | **FrameRateDenominator**         | --fps-denom                 | [0-2^32-1]                     | 1000        | Input video frame rate denominator                                                                            |
-| **EncoderBitDepth**              | --input-depth               | [8, 10]                        | 8           | Input video file and output bitstream bit-depth                                                               |
+| **EncoderBitDepth**              | --input-depth               | [8, 10]                        | 10          | Input video file and output bitstream bit-depth                                                               |
 | **Injector**                     | --inj                       | [0-1]                          | 0           | Inject pictures to the library at defined frame rate                                                          |
 | **InjectorFrameRate**            | --inj-frm-rt                | [0-240]                        | 60          | Set injector frame rate, only applicable with `--inj 1`                                                       |
 | **StatReport**                   | --enable-stat-report        | [0-1]                          | 0           | Calculates and outputs PSNR SSIM metrics at the end of encoding                                               |
 | **Asm**                          | --asm                       | [0-11, c-max]                  | max         | Limit assembly instruction set [c, mmx, sse, sse2, sse3, ssse3, sse4_1, sse4_2, avx, avx2, avx512, avx512icl, max] for x86 platforms, [c, neon, crc32, neon_dotprod, neon_i8mm, sve, sve2] for Arm platforms. |
 | **LevelOfParallelism**           | --lp                        | [0, 6]                         | 0           | Controls the number of threads to create and the number of picture buffers to allocate (higher level means more parallelism). 0 means choose level based on machine core count. Refer to Appendix A.1 |
 | **FastDecode**                   | --fast-decode               | [0,2]                          | 0           | Tune settings to output bitstreams that can be decoded faster, [0 = OFF, 1,2 = levels for decode-targeted optimization (2 yields faster decoder speed)]. Defaults to 5 temporal layers structure but may override with --hierarchical-levels|
-| **Tune**                         | --tune                      | [0-5]                          | 1           | Optimize the encoding process for different desired outcomes [0 = VQ (video and still image), 1 = PSNR (video and still image), 2 = SSIM (video and still image), 3 = IQ (still image only), 4 = MS-SSIM (video and still image), 5 = VMAF (video only)]  |
+| **Tune**                         | --tune                      | [0-6]                          | 1           | Optimize the encoding process for different desired outcomes [0 = VQ (video and still image), 1 = PSNR (video and still image), 2 = SSIM (video and still image), 3 = IQ (still image only), 4 = MS-SSIM (video and still image), 5 = VMAF (video only), 6 = Film Grain]  |
 | **AdaptiveFilmGrain**            | --adaptive-film-grain       | [0,1]                          | 1           | Allows film grain synthesis to be sourced from different block sizes depending on resolution                  |
 | **MaxTxSize**                    | --max-tx-size               | [32,64]                        | 64          | Restricts use of block transform sizes to the specified value                                                 |
+| **NoiseNormStrength**            |  --noise-norm-strength      | [0-4]                          | 1           | Selectively boost AC coefficients to improve fine detail retention in certain circumstances                   |
+| **AltSSIMTuning**                | --alt-ssim-tuning           | [0-1]                          | 0           | Enables the usage of VQ optimizations and an alternative SSIM calculation pathway (Only operates with tune 2) |
+| **LowMemory**                    | --low-memory                | [0-1]                          | 0           | Specifies whether to use params which reduce RAM consumption with potential efficiency and speed trade-offs   |
 
 ## Rate Control Options
 
@@ -92,13 +96,21 @@ For more information on valid values for specific keys, refer to the [EbEncSetti
 | **QpFile**                       | --qpfile                         | any string | Null        | Path to a file containing per picture QP value                                                                                                       |
 | **MaxQpAllowed**                 | --max-qp                         | [0-63]     | 63          | Maximum quantizer (lowest quality)                                                                                                                   |
 | **MinQpAllowed**                 | --min-qp                         | [0-63]     | 0           | Minimum quantizer (highest quality)                                                                                                                  |
-| **EnableVarianceBoost**          | --enable-variance-boost          | [0-1]      | 0           | Enable Variance Boost                                                                                                                                |
+| **EnableVarianceBoost**          | --enable-variance-boost          | [0-1]      | 1           | Enable Variance Boost                                                                                                                                |
 | **VarianceBoostStrength**        | --variance-boost-strength        | [1-4]      | 2           | Set variance curve strength for Variance Boost feature [1: mild, 2: gentle [Default], 3: medium, 4: aggressive]                                      |
 | **VarianceOctile**               | --variance-octile                | [1-8]      | 5           | Set variance algorithm 8x8 block selectivity level [1: 1st octile, 4: median, 5: 5th octile [Default], 8: maximum]                                   |
+| **VarianceBoostCurve**           | --variance-boost-curve           | [0-3]      | 0, 3 (PQ)   | Variance Boost curve [0: default, 1: alternative, 2: still image, 3: HDR PQ transfer]                                                                |
 | **AdaptiveQuantization**         | --aq-mode                        | [0-2]      | 2           | Set adaptive QP level [0: off, 1: variance base using AV1 segments, 2: deltaq pred efficiency]                                                       |
 | **HBDMDS**                       | --hbd-mds                        | [-1-2]     | -1           | Activation of high bit depth mode decisions; 10-bit MD only works with 10-bit inputs (-1: default preset behavior, 0: full 8b MD 1: full 10b MD, 2: hybrid 8/10b MD)                                                |
-| **QpScaleCompressStrength**      | --qp-scale-compress-strength     | [0-3]      | 0           | Sets the strength the QP scale algorithm compresses values across all temporal layers, which results in more consistent video quality (less quality variation across frames in a mini-gop) |
-| **AcBias**                       | --ac-bias                        | [0.0-8.0]  | 0.0         | Sets the strength of the internal RD metric to bias toward high-frequency error (helps with texture preservation and film grain retention)           |
+| **SharpTX**                      | --sharp-tx                       | [0-1]      | 1           | Activation of sharp transform optimizations for higher fidelity encoding (cleaner output with slightly higher chances of artifacting)                |
+| **COMPLEXHVS**                   | --complex-hvs                    | [0-1]      | 0           | Activation of highest complexity HVS model (0: default behavior, 1: enable highest complexity HVS model)                                             |
+| **EnableQMPSNR**                 | --enable-qmpsnr                  | [-1-1]     | -1          | QM-weighted transform distortion and coefficient optimization. -1: default (on for tune IQ only), 0: PSNR/SSE, 1: QM-PSNR                            |
+| **QpScaleCompressStrength**      | --qp-scale-compress-strength     | [0.0-8.0]  | 1.0         | Sets the strength the QP scale algorithm compresses values across all temporal layers, which results in more consistent video quality (less quality variation across frames in a mini-gop) [0.0: SVT-AV1 default, 1.0: SVT-AV1-HDR default, 0.0-3.0: recommended range] |
+| **AcBias**                       | --ac-bias                        | [0.0-8.0]  | 1.0         | Sets the strength of the internal RD metric to bias toward high-frequency error (helps with texture preservation and film grain retention)           |
+| **TxBias**                       | --tx-bias                        | [0-3]      | 0           | Transform size/type bias mode [0: disabled, 1: full, 2: transform size only, 3: interpolation filter only]                                           |
+| **NoiseAdaptiveFiltering**       | --noise-adaptive-filtering       | [0-4]      | 2           | Controls noise detection which disables CDEF/restoration when noise level is high enough [0: off, 1: both CDEF and restoration noise-adaptive filtering are on, 2: default tune behavior, 3: noise-adaptive CDEF only, 4: noise-adaptive restoration only] |
+| **AltCDEF**                      | --enable-alt-cdef                | [0-3]      | 0           | Enable alternative CDEF biases                                                                                                                       |
+| **AltDLF**                       | --enable-alt-dlf                 | [0-3]      | 0           | Enable alternative DLF biases                                                                                                                        |
 | **UseFixedQIndexOffsets**        | --use-fixed-qindex-offsets       | [0-2]      | 0           | Overwrite the encoder default hierarchical layer based QP assignment and use fixed Q index offsets                                                   |
 | **KeyFrameQIndexOffset**         | --key-frame-qindex-offset        | [-64-63]   | 0           | Overwrite the encoder default keyframe Q index assignment                                                                                            |
 | **KeyFrameChromaQIndexOffset**   | --key-frame-chroma-qindex-offset | [-64-63]   | 0           | Overwrite the encoder default chroma keyframe Q index assignment                                                                                     |
@@ -120,17 +132,19 @@ For more information on valid values for specific keys, refer to the [EbEncSetti
 | **MinSectionPct**                | --minsection-pct                 | [0-100]    | 0           | GOP min bitrate (expressed as a percentage of the target rate)                                                                                       |
 | **MaxSectionPct**                | --maxsection-pct                 | [0-10000]  | 2000        | GOP max bitrate (expressed as a percentage of the target rate)                                                                                       |
 | **GopConstraintRc**              | --gop-constraint-rc              | [0-1]      | 0           | Constrains the rate control to match the target rate for each GoP [0 = OFF, 1 = ON]                                                                  |
-| **EnableQM**                     | --enable-qm                      | [0-1]      | 0           | Enable quantisation matrices                                                                                                                         |
-| **MinQmLevel**                   | --qm-min                         | [0-15]     | 8           | Min quant matrix flatness                                                                                                                            |
-| **MaxQmLevel**                   | --qm-max                         | [0-15]     | 15          | Max quant matrix flatness                                                                                                                            |
+| **EnableQM**                     | --enable-qm                      | [0-1]      | 1           | Enable quantisation matrices                                                                                                                         |
+| **MinQmLevel**                   | --qm-min                         | [0-15]     | 6           | Min quant matrix flatness                                                                                                                            |
+| **MaxQmLevel**                   | --qm-max                         | [0-15]     | 10          | Max quant matrix flatness                                                                                                                            |
 | **MinChromaQmLevel**             | --chroma-qm-min                  | [0-15]     | 8           | Min chroma quant matrix flatness                                                                                                                     |
 | **MaxChromaQmLevel**             | --chroma-qm-max                  | [0-15]     | 15          | Max chroma quant matrix flatness                                                                                                                     |
 | **LambdaScaleFactors**           | --lambda-scale-factors           | [0- ]      | '128,.,128' | list of scale factors for lambda values used for different SvtAv1FrameUpdateType, separated by `,` divide by 128 is the actual scale factor in float |
 | **RoiMapFile**                   | --roi-map-file                   | any string | Null        | Path to a file containing picture based QP offset map                                                                                                |
-| **TemporalFilteringStrength**    | --tf-strength                    | [0-4]      | 3           | Manually adjust temporal filtering strength. Higher values = stronger temporal filtering                                                             |
+| **TemporalFilteringStrength**    | --tf-strength                    | [0-4]      | 1           | Manually adjust temporal filtering strength. Higher values = stronger temporal filtering                                                             |
 | **LuminanceQpBias**              | --luminance-qp-bias              | [0-100]    | 0           | Adjusts a frame's QP based on its average luma value                                                                                                 |
-| **Sharpness**                    | --sharpness                      | [-7-7]     | 0           | Bias towards decreased/increased sharpness                                                                                                           |
-
+| **Sharpness**                    | --sharpness                      | [-7-7]     | 1           | Bias towards decreased/increased sharpness                                                                                                           |
+| **KFTemporalFilteringStrength**  | --kf-tf-strength                 | [0-4]      | 1           | Manually adjust alt-ref temporal filtering strengh on keyframes. Higher values = stronger alt-ref temporal filtering                                 |
+| **AltLambdaFactors**             | --alt-lambda-factors             | [0-1]      | 0           | Use alternative RDO lambda factors (from SVT-AV1 3.0.2)                                                                                              |
+| **Zones**                        | --zones                          | any string | Null        | Zones adjust base CRF/CQP for given (inclusive) frame ranges. Format: start1,end1,quality1;start2,end2,quality2;... Default is no zone               |
 
 ### **UseFixedQIndexOffsets** and more information
 
@@ -253,9 +267,10 @@ SvtAv1EncApp -i in.y4m -b out.ivf --roi-map-file roi_map.txt
 
 | **Configuration file parameter** | **Command line**      | **Range**       | **Default**       | **Description**                                                                                                                                              |
 |----------------------------------|-----------------------|-----------------|-------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Keyint**                       | --keyint              | [-2-`(2^31)-1`] | -2                | GOP size (frames), use `s` suffix for seconds (SvtAv1EncApp only) [-2: ~5 seconds, -1: "infinite" only for CRF, 0: == -1]                                    |
+| **Keyint**                       | --keyint              | [-2-`(2^31)-1`] | -2                | Max GOP size (frames), use `s` suffix for seconds (SvtAv1EncApp only) [-2: ~10 seconds (up to 305 frames), -1: "infinite" only for CRF, 0: == -1]            |
+| **MinKeyint**                    | --min-keyint          | [-1-`(2^31)-1`] | -1                | Min GOP size (frames), use `s` suffix for seconds (SvtAv1EncApp only) [-1: multiple of the mini-gop length (automatic), 0: no minimum]                       |
 | **IntraRefreshType**             | --irefresh-type       | [1-2]           | 2                 | Intra refresh type [1: FWD Frame (Open GOP), 2: KEY Frame (Closed GOP)]                                                                                      |
-| **SceneChangeDetection**         | --scd                 | [0-1]           | 0                 | Scene change detection control                                                                                                                               |
+| **SceneChangeDetection**         | --scd                 | [0-1]           | 1                 | Scene change detection control                                                                                                                               |
 | **Lookahead**                    | --lookahead           | [-1,0-120]      | -1                | Number of frames in the future to look ahead, beyond minigop, temporal filtering, and rate control [-1: auto]                                                |
 | **HierarchicalLevels**           | --hierarchical-levels | [0-5]           | <=M12:5 , else: 4 | Set hierarchical levels beyond the base layer [0: flat, 1: 2 temporal layers, 2: 3 temporal layers, 3: 4 temporal layers, 5: 6 temporal layers]              |
 | **PredStructure**                | --pred-struct         | [0-2]           | 2                 | Set prediction structure [0: all intra, 1: low delay, 2: random access]                                                                                      |
@@ -268,13 +283,16 @@ SvtAv1EncApp -i in.y4m -b out.ivf --roi-map-file roi_map.txt
 
 | **Configuration file parameter** | **Command line**           | **Range**      | **Default** | **Description**                                                                                                                                                       |
 |----------------------------------|----------------------------|----------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **AutoTiling**                   | --auto-tiling              | [0-1]          | 1           | Automatically sets tiles appropriate for the source input resolution [0: off (manual), 1: on (automatic)]                                                             |
 | **TileRow**                      | --tile-rows                | [0-6]          | 0           | Number of tile rows to use, `TileRow == log2(x)`, default changes per resolution                                                                                      |
 | **TileCol**                      | --tile-columns             | [0-4]          | 0           | Number of tile columns to use, `TileCol == log2(x)`, default changes per resolution                                                                                   |
-| **LoopFilterEnable**             | --enable-dlf               | [0-2]          | 1           | Deblocking loop filter control (1: enabled, 2: slower, more accurate filtering)                                                                                                                                       |
+| **LoopFilterEnable**             | --enable-dlf               | [0-3]          | 1           | Deblocking loop filter control (1: enabled, 2: slower, more accurate filtering, 3: maximum accuracy)                                                                  |
 | **CDEFLevel**                    | --enable-cdef              | [0-1]          | 1           | Enable Constrained Directional Enhancement Filter                                                                                                                     |
+| **CDEFScaling**                  | --cdef-scaling         | [1-30]         | 15          | Controls scaling of the CDEF strength computation                                                                                                                     |
+| **EnableDaala**                  | --enable-daala             | [0-4]          | 0           | Enables the Daala perceptual distortion metric [0: OFF, 1: CDEF, 2: 1 + TX Search + MDS3 Selection, 3: 2 + DCT TX, 4: 3 + MDS0 + IFS RD + OBMC]                                 |
 | **EnableRestoration**            | --enable-restoration       | [0-1]          | 1           | Enable loop restoration filter                                                                                                                                        |
 | **Mfmv**                         | --enable-mfmv              | [-1-1]         | -1          | Motion Field Motion Vector control [-1: auto]                                                                                                                         |
-| **EnableTF**                     | --enable-tf                | [0-2]          | 1           | Enable ALT-REF (temporally filtered) frames [0: off, 1: on, 2: adaptive]                                                                                              |
+| **EnableTF**                     | --enable-tf                | [0-3]          | 1           | Enable ALT-REF (temporally filtered) frames [0: off, 1: on, 2: adaptive, 3: full]                                                                                     |
 | **EnableTfKey**                  | --enable-kf-tf             | [0-1]          | 1           | Enable MCTF for key frames [0: off, 1: on]                                                                                                                            |
 | **EnableOverlays**               | --enable-overlays          | [0-1]          | 0           | Enable the insertion of overlayer pictures which will be used as an additional reference frame for the base layer picture                                             |
 | **ScreenContentMode**            | --scm                      | [0-3]          | 2           | Set screen content detection level [0: None, 1: Block Copy + Palette, 2: content adaptive, 3: content adaptive (anti-alias aware)]                                    |
@@ -282,6 +300,10 @@ SvtAv1EncApp -i in.y4m -b out.ivf --roi-map-file roi_map.txt
 | **FilmGrain**                    | --film-grain               | [0-50]         | 0           | Enable film grain [0: off, 1-50: level of denoising for film grain]                                                                                                   |
 | **FilmGrainDenoise**             | --film-grain-denoise       | [0-1]          | 0           | Apply denoising when film grain is ON, default is 0 [0: no denoising, film grain data sent in frame header, 1: level of denoising is set by the film-grain parameter] |
 | **FGSTable**                     | --fgs-table                | any string     | None        | Path to a file containing a pre-generated film grain table for grain synthesis, only available through SvtAv1Enc interface                                            |
+| **Noise**                        | --noise                | [ 0 - 200]     | 0           | Generate noise table for film grain. 50 is roughly equivalent to `--film-grain 50`, default is 0 [0: off, 1-200: strength value]                                      |
+| **NoiseChroma**                  | --noise-chroma         | [-1 - 200]     | -1          | Chroma noise with strength based on `--noise` setting (-1) or set its strength independently (0-200), default is -1 [-1: ~60% of luma, 0: off, 1-200: strength value] |
+| **NoiseChromaFromLuma**          |--noise-chroma-from-luma| [0-1]          | 0           | Apply noise to chroma planes based on the luma plane. When enabled, chroma noise will appear on grayscale content, default is 0 [0: off, 1: on]                       |
+| **NoiseSize**                    | --noise-size           | [-1 - 13]      | -1          | Set size of noise grain. Higher value results in a larger-looking noise, default is -1 [-1: auto, 0-13: set grain size]                                               |
 | **SuperresMode**                 | --superres-mode            | [0-4]          | 0           | Enable super-resolution mode, refer to the super-resolution section below for more info                                                                               |
 | **SuperresDenom**                | --superres-denom           | [8-16]         | 8           | Super-resolution denominator, only applicable for mode == 1 [8: no scaling, 16: half-scaling]                                                                         |
 | **SuperresKfDenom**              | --superres-kf-denom        | [8-16]         | 8           | Super-resolution denominator for key frames, only applicable for mode == 1 [8: no scaling, 16: half-scaling]                                                          |
@@ -367,6 +389,8 @@ Other options such as updating the Bitrate and resolution during the encoding se
 | **ChromaSamplePosition**           | --chroma-sample-position     | any string   | unknown       | Chroma sample position ['unknown', 'vertical'/'left', 'colocated'/'topleft']                                                               |
 | **MasteringDisplay**               | --mastering-display          | any string   | none          | Mastering display metadata in the format of "G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min)", refer to the user guide Appendix A.2 for full details   |
 | **ContentLightLevel**              | --content-light              | any string   | none          | Set content light level in the format of "max_cll,max_fall", refer to the user guide Appendix A.2 for full details                         |
+| **DolbyVisionRpu**                 | --dolby-vision-rpu           | any string   | none          | Set the path to a Dolby Vision RPU for encoding Dolby Vision video. Encoder needs to be built with the `enable-libdovi` flag               |
+| **Hdr10PlusJson**                  | --hdr10plus-json             | any string   | none          | Set the path to a HDR10+ JSON file for encoding HDR10+ video. Encoder needs to be built with the `enable-hdr10plus` flag                   |
 
 ## Appendix A Encoder Parameters
 
@@ -568,6 +592,19 @@ Adaptive film grain is enabled by default.
 - **Moderate values** (1.0-1.5) help retain sharpness and acuity of textures and scenes with complex motion.
 
 - **High values** (4.0-6.0, together with disabling temporal filtering and CDEF) can dramatically improve film grain and noise retention.
+
+### `--enable-daala [0-4]`
+`--enable-daala` enables the Daala perceptual distortion metric.
+
+- **0** disables the feature, the default value.
+
+- **1** enables Daala for CDEF.
+
+- **2** additionally enables Daala for TX Search and MDS3 Selection.
+
+- **3** additionally enables Daala for DCT TX.
+
+- **4** additionally enables Daala for MDS0 and IFS.
 
 ### `--luminance-qp-bias [0-100]`
 When enabled, the `--luminance-qp-bias` parameter enables frame-level luma bias to improve quality in dark scenes by adjusting frame-level QP based on average luminance across each frame.

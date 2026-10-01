@@ -85,6 +85,13 @@ void svt_cfl_luma_subsampling_420_hbd_avx2(const uint16_t *input, int32_t input_
 void svt_cfl_luma_subsampling_420_hbd_sse4_1(const uint16_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
 RTCD_EXTERN void(*svt_cfl_luma_subsampling_420_hbd)(const uint16_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
 
+void svt_cfl_luma_subsampling_444_lbd_c(const uint8_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
+void svt_cfl_luma_subsampling_444_lbd_avx2(const uint8_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
+RTCD_EXTERN void(*svt_cfl_luma_subsampling_444_lbd)(const uint8_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
+void svt_cfl_luma_subsampling_444_hbd_c(const uint16_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
+void svt_cfl_luma_subsampling_444_hbd_avx2(const uint16_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
+RTCD_EXTERN void(*svt_cfl_luma_subsampling_444_hbd)(const uint16_t *input, int32_t input_stride, int16_t *output_q3, int32_t width, int32_t height);
+
 void svt_av1_filter_intra_predictor_c(uint8_t *dst, ptrdiff_t stride, TxSize tx_size, const uint8_t *above, const uint8_t *left, int32_t mode);
 RTCD_EXTERN void(*svt_av1_filter_intra_predictor) (uint8_t *dst, ptrdiff_t stride, TxSize tx_size, const uint8_t *above, const uint8_t *left, int32_t mode);
 void svt_av1_filter_intra_edge_c(uint8_t *p, int32_t sz, int32_t strength);
@@ -1132,6 +1139,36 @@ int svt_av1_highbd_hadamard_satd_8x8_c(const uint16_t *src, ptrdiff_t src_stride
 RTCD_EXTERN int (*svt_av1_highbd_hadamard_satd_8x8)(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
 int svt_av1_highbd_hadamard_satd_4x4_c(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
 RTCD_EXTERN int (*svt_av1_highbd_hadamard_satd_4x4)(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+#endif
+
+#if ARCH_X86_64
+int svt_av1_hadamard_satd_4x4_avx2(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+int svt_av1_hadamard_satd_8x8_avx2(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+int svt_av1_hadamard_satd_16x16_avx2(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+int svt_av1_hadamard_satd_32x32_avx2(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+uint64_t svt_psy_distortion_avx2(const uint8_t *input, uint32_t input_stride, const uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height);
+#if CONFIG_ENABLE_HIGH_BIT_DEPTH
+int svt_av1_highbd_hadamard_satd_4x4_avx2(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+int svt_av1_highbd_hadamard_satd_8x8_avx2(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+int svt_av1_highbd_hadamard_satd_16x16_avx2(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+int svt_av1_highbd_hadamard_satd_32x32_avx2(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+uint64_t svt_psy_distortion_hbd_avx2(const uint16_t *input, uint32_t input_stride, const uint16_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height);
+#endif
+#endif
+
+#if defined(ARCH_X86_64) && EN_AVX512_SUPPORT
+int svt_av1_hadamard_satd_4x4_avx512(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+int svt_av1_hadamard_satd_8x8_avx512(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+int svt_av1_hadamard_satd_16x16_avx512(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+int svt_av1_hadamard_satd_32x32_avx512(const uint8_t *src, ptrdiff_t src_stride, const uint8_t *pred, ptrdiff_t pred_stride);
+uint64_t svt_psy_distortion_avx512(const uint8_t *input, uint32_t input_stride, const uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height);
+#if CONFIG_ENABLE_HIGH_BIT_DEPTH
+int svt_av1_highbd_hadamard_satd_4x4_avx512(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+int svt_av1_highbd_hadamard_satd_8x8_avx512(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+int svt_av1_highbd_hadamard_satd_16x16_avx512(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+int svt_av1_highbd_hadamard_satd_32x32_avx512(const uint16_t *src, ptrdiff_t src_stride, const uint16_t *pred, ptrdiff_t pred_stride);
+uint64_t svt_psy_distortion_hbd_avx512(const uint16_t *input, uint32_t input_stride, const uint16_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height);
+#endif
 #endif
 
 uint64_t svt_psy_distortion_c(const uint8_t *input, uint32_t input_stride, const uint8_t *recon, uint32_t recon_stride, uint32_t width, uint32_t height);

@@ -361,6 +361,7 @@ static int32_t av1_write_coeffs_txb_1d(PictureParentControlSet* ppcs, FRAME_CONT
     int32_t      c;
     const TxSize txs_ctx = get_txsize_entropy_ctx(tx_size);
     TxType       tx_type = component_type == COMPONENT_LUMA ? blk_ptr->tx_type[txb_index] : blk_ptr->tx_type_uv;
+    assert(!ppcs->frm_hdr.coded_lossless || (tx_type == DCT_DCT && tx_size == TX_4X4));
 
     assert(txs_ctx < TX_SIZES);
 
@@ -767,6 +768,7 @@ static EbErrorType av1_encode_coeff_1d(PictureControlSet* pcs, EntropyCodingCont
                                        NeighborArrayUnit* luma_dc_sign_level_coeff_na,
                                        NeighborArrayUnit* cr_dc_sign_level_coeff_na,
                                        NeighborArrayUnit* cb_dc_sign_level_coeff_na) {
+    const int         chroma_ss    = pcs->scs->subsampling_x;
     EbErrorType       return_error = EB_ErrorNone;
     MbModeInfo* const mbmi         = ec_ctx->mbmi;
     const int32_t     is_inter     = is_inter_mode(mbmi->block_mi.mode) || mbmi->block_mi.use_intrabc;
@@ -2370,9 +2372,7 @@ static void encode_quantization(const PictureParentControlSet* const pcs, AomWri
                              frm_hdr->quantization_params.delta_q_dc[PLANE_V]) ||
         (frm_hdr->quantization_params.delta_q_ac[PLANE_U] != frm_hdr->quantization_params.delta_q_ac[PLANE_V]);
 
-    if (diff_uv_delta) {
-        svt_aom_wb_write_bit(wb, diff_uv_delta);
-    }
+    svt_aom_wb_write_bit(wb, diff_uv_delta);
     write_delta_q(wb, frm_hdr->quantization_params.delta_q_dc[PLANE_U]);
     write_delta_q(wb, frm_hdr->quantization_params.delta_q_ac[PLANE_U]);
     if (diff_uv_delta) {
@@ -2383,11 +2383,7 @@ static void encode_quantization(const PictureParentControlSet* const pcs, AomWri
     if (frm_hdr->quantization_params.using_qmatrix) {
         svt_aom_wb_write_literal(wb, frm_hdr->quantization_params.qm[PLANE_Y], QM_LEVEL_BITS);
         svt_aom_wb_write_literal(wb, frm_hdr->quantization_params.qm[PLANE_U], QM_LEVEL_BITS);
-        if (!diff_uv_delta) {
-            assert(frm_hdr->quantization_params.qm[PLANE_U] == frm_hdr->quantization_params.qm[PLANE_V]);
-        } else {
-            svt_aom_wb_write_literal(wb, frm_hdr->quantization_params.qm[PLANE_V], QM_LEVEL_BITS);
-        }
+        svt_aom_wb_write_literal(wb, frm_hdr->quantization_params.qm[PLANE_V], QM_LEVEL_BITS);
     }
 }
 
@@ -2735,11 +2731,7 @@ static AOM_INLINE void write_color_config(const SequenceControlSet* const scs, A
             svt_aom_wb_write_literal(wb, scs->static_config.chroma_sample_position, 2);
         }
     }
-    bool separate_uv_delta_q = (scs->static_config.chroma_u_ac_qindex_offset !=
-                                    scs->static_config.chroma_v_ac_qindex_offset ||
-                                scs->static_config.chroma_u_dc_qindex_offset !=
-                                    scs->static_config.chroma_v_dc_qindex_offset);
-    svt_aom_wb_write_bit(wb, separate_uv_delta_q);
+    svt_aom_wb_write_bit(wb, 1); // separate_uv_delta_q
 }
 
 static void write_sequence_header(SequenceControlSet* scs, AomWriteBitBuffer* wb) {
@@ -4166,6 +4158,7 @@ static void loop_restoration_write_sb_coeffs(PictureControlSet* pcs, FRAME_CONTE
 
 static void ec_update_neighbors(PictureControlSet* pcs, EntropyCodingContext* ec_ctx, uint32_t blk_org_x,
                                 uint32_t blk_org_y, uint16_t tile_idx, BlockSize bsize) {
+    const int          chroma_ss                   = pcs->scs->subsampling_x;
     NeighborArrayUnit* partition_context_na        = pcs->partition_context_na[tile_idx];
     NeighborArrayUnit* luma_dc_sign_level_coeff_na = pcs->luma_dc_sign_level_coeff_na[tile_idx];
     NeighborArrayUnit* cr_dc_sign_level_coeff_na   = pcs->cr_dc_sign_level_coeff_na[tile_idx];
@@ -4363,6 +4356,7 @@ static inline void pack_map_tokens(AomWriter* w, const TOKENEXTRA** tp, int n, i
 
 static void write_palette_mode_info(PictureParentControlSet* ppcs, FRAME_CONTEXT* ec_ctx, MbModeInfo* mbmi,
                                     EcBlkStruct* blk_ptr, BlockSize bsize, int mi_row, int mi_col, AomWriter* w) {
+    const int      chroma_ss         = ppcs->scs->subsampling_x;
     const uint32_t intra_luma_mode   = mbmi->block_mi.mode;
     uint32_t       intra_chroma_mode = mbmi->block_mi.uv_mode;
 
@@ -4946,6 +4940,7 @@ int svt_aom_is_interintra_wedge_used(BlockSize bsize);
 static EbErrorType write_modes_b(PictureControlSet* pcs, EntropyCodingContext* ec_ctx, EntropyCoder* ec,
                                  SuperBlock* sb_ptr, EcBlkStruct* blk_ptr, uint16_t tile_idx,
                                  EbPictureBufferDesc* coeff_ptr, const int mi_row, const int mi_col) {
+    const int           chroma_ss     = pcs->scs->subsampling_x;
     EbErrorType         return_error  = EB_ErrorNone;
     FRAME_CONTEXT*      frame_context = ec->fc;
     AomWriter*          ec_writer     = &ec->ec_writer;
@@ -4969,6 +4964,7 @@ static EbErrorType write_modes_b(PictureControlSet* pcs, EntropyCodingContext* e
                                                   scs->subsampling_x,
                                                   scs->subsampling_y);
     ec_ctx->mbmi                                   = mbmi;
+    const bool all_skip = sb_ptr->all_skip;
 
     const uint8_t skip_mode = mbmi->block_mi.skip_mode;
 
@@ -5014,8 +5010,9 @@ static EbErrorType write_modes_b(PictureControlSet* pcs, EntropyCodingContext* e
                 (((blk_org_x >> 2) & (scs->seq_header.sb_mi_size - 1)) == 0);
             if ((bsize != scs->seq_header.sb_size || skip_coeff == 0) && super_block_upper_left) {
                 assert(current_q_index > 0);
-                int32_t reduced_delta_qindex = (current_q_index - pcs->ppcs->prev_qindex[tile_idx]) /
-                    frm_hdr->delta_q_params.delta_q_res;
+                int32_t reduced_delta_qindex = all_skip
+                    ? 0
+                    : (current_q_index - pcs->ppcs->prev_qindex[tile_idx]) / frm_hdr->delta_q_params.delta_q_res;
 
                 //write_delta_qindex(xd, reduced_delta_qindex, w);
                 av1_write_delta_q_index(frame_context, reduced_delta_qindex, ec_writer);
@@ -5026,7 +5023,7 @@ static EbErrorType write_modes_b(PictureControlSet* pcs, EntropyCodingContext* e
                 current_q_index,
                 pcs->ppcs->prev_qindex);
                 }*/
-                pcs->ppcs->prev_qindex[tile_idx] = current_q_index;
+                pcs->ppcs->prev_qindex[tile_idx] = all_skip ? pcs->ppcs->prev_qindex[tile_idx] : current_q_index;
             }
         }
 
@@ -5156,10 +5153,11 @@ static EbErrorType write_modes_b(PictureControlSet* pcs, EntropyCodingContext* e
                 (((blk_org_x >> 2) & (scs->seq_header.sb_mi_size - 1)) == 0);
             if ((bsize != scs->seq_header.sb_size || skip_coeff == 0) && super_block_upper_left) {
                 assert(current_q_index > 0);
-                int32_t reduced_delta_qindex = (current_q_index - pcs->ppcs->prev_qindex[tile_idx]) /
-                    frm_hdr->delta_q_params.delta_q_res;
+                int32_t reduced_delta_qindex = all_skip
+                    ? 0
+                    : (current_q_index - pcs->ppcs->prev_qindex[tile_idx]) / frm_hdr->delta_q_params.delta_q_res;
                 av1_write_delta_q_index(frame_context, reduced_delta_qindex, ec_writer);
-                pcs->ppcs->prev_qindex[tile_idx] = current_q_index;
+                pcs->ppcs->prev_qindex[tile_idx] = all_skip ? pcs->ppcs->prev_qindex[tile_idx] : current_q_index;
             }
         }
         if (frm_hdr->tx_mode == TX_MODE_SELECT) {

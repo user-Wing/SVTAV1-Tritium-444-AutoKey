@@ -1057,12 +1057,18 @@ static EbErrorType picture_control_set_ctor(PictureControlSet* object_ptr, EbPtr
         : rtc_tune          ? MIN(disallow_4x4, svt_aom_get_disallow_4x4_rtc())
                             : MIN(disallow_4x4, svt_aom_get_disallow_4x4_default(init_data_ptr->enc_mode));
 
+    if (init_data_ptr->color_format == EB_YUV444) {
+        disallow_4x4 = false;
+    }
     object_ptr->disallow_4x4_all_frames = disallow_4x4;
     disallow_8x8                        = allintra ? MIN(disallow_8x8, svt_aom_get_disallow_8x8_allintra())
                                : rtc_tune          ? MIN(disallow_8x8,
                          svt_aom_get_disallow_8x8_rtc(
                              init_data_ptr->enc_mode, init_data_ptr->picture_width, init_data_ptr->picture_height))
                                                    : MIN(disallow_8x8, svt_aom_get_disallow_8x8_default());
+    if (init_data_ptr->color_format == EB_YUV444) {
+        disallow_8x8 = false;
+    }
     object_ptr->disallow_8x8_all_frames = disallow_8x8;
     /* If 4x4 blocks are disallowed for all frames, the the MI blocks only need to be allocated for
     8x8 blocks.  The mi_grid will still be 4x4 so that the data can be accessed the same way throughout
@@ -1122,6 +1128,10 @@ static void picture_parent_control_set_dctor(EbPtr ptr) {
 
     if (obj->is_chroma_downsampled_picture_ptr_owner) {
         EB_DELETE(obj->chroma_downsampled_pic);
+    }
+
+    if (obj->mean) {
+        EB_FREE_ARRAY(obj->mean);
     }
 
     if (obj->variance) {
@@ -1194,7 +1204,7 @@ EbErrorType ppcs_update_param(PictureParentControlSet* ppcs) {
         input_pic_buf_desc_init_data.bit_depth          = 8; //Should be 8bit
         input_pic_buf_desc_init_data.buffer_enable_mask = PICTURE_BUFFER_DESC_CHROMA_MASK;
         input_pic_buf_desc_init_data.border             = scs->border;
-        input_pic_buf_desc_init_data.color_format       = EB_YUV420; //set to 420 for MD
+        input_pic_buf_desc_init_data.color_format       = EB_YUV420; // chroma-complexity analysis only
         input_pic_buf_desc_init_data.split_mode         = false;
         svt_picture_buffer_desc_update(ppcs->chroma_downsampled_pic, (EbPtr)&input_pic_buf_desc_init_data);
     }
@@ -1272,6 +1282,7 @@ static EbErrorType picture_parent_control_set_ctor(PictureParentControlSet* obje
         } else {
             block_count = 1;
         }
+        EB_MALLOC_ARRAY(object_ptr->mean, object_ptr->b64_total_count);
         EB_MALLOC_2D(object_ptr->variance, object_ptr->b64_total_count, block_count);
     }
     if (init_data_ptr->calc_hist) {

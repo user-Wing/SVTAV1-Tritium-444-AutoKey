@@ -77,6 +77,12 @@ For each enable-*, there is a disable-* option, and vice versa.
     disable-avx512
     --enable-lto,       Enable link time optimization
     enable-lto
+    --enable-dovi,   Enable support for Dolby Vision RPUs (if dovi lib is found)
+    enable-dovi
+    --enable-hdr10plus,   Enable support for HDR10+ metadata (if hdr10plus lib is found)
+    enable-hdr10plus
+    --ext-lib-static,   Force linking with static libraries for external dependencies (dovi and hdr10plus)
+    ext-lib-static
     --disable-native,   Disable the use of -march=native
     disable-native
     --enable-pgo,       Enable profile guided optimization
@@ -111,12 +117,15 @@ For each enable-*, there is a disable-* option, and vice versa.
     minimal-build
     --rtc-build,        Do RTC build, ie reduced feature set
     rtc-build
+    --use-ffms2,        Enable FFMS2 support (Install FFMS2 first)
+    use-ffms2
     --log-quiet,        Do not log anything from the core encoder
     log-quiet
 
 Example usage:
     build.sh -xi debug test
     build.sh jobs=8 all cc=clang cxx=clang++
+    build.sh jobs=8 all cc=clang cxx=clang++ enable-avx512 enable-lto enable-dovi asm=nasm static native verbose
     build.sh -j 4 all -t "https://gist.githubusercontent.com/peterspackman/8cf73f7f12ba270aa8192d6911972fe8/raw/mingw-w64-x86_64.cmake"
     build.sh generator=Xcode cc=clang
 
@@ -301,6 +310,8 @@ parse_options() {
                 none) PGO_COMPILE_STAGE=all ;;
                 esac
                 ;;
+            dovi) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DLIBDOVI_FOUND=1" ;;
+            hdr10plus) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DLIBHDR10PLUS_RS_FOUND=1" ;;
             *) print_message "Unknown option: $1" ;;
             esac
             shift
@@ -353,7 +364,9 @@ parse_options() {
         verbose) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DCMAKE_VERBOSE_MAKEFILE=1" && shift ;;
         minimal-build) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DMINIMAL_BUILD=ON" && shift ;;
         rtc-build) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DRTC_BUILD=ON" && shift ;;
+        use-ffms2) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DUSE_FFMS2=ON" && shift ;;
         log-quiet) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DLOG_QUIET=ON" && shift ;;
+        ext-lib-static) CMAKE_EXTRA_FLAGS="$CMAKE_EXTRA_FLAGS -DEXT_LIB_STATIC=ON" && shift ;;
         *) print_message "Unknown option: $1" && shift ;;
         esac
     done
@@ -398,7 +411,9 @@ else
             verbose) parse_options verbose && shift ;;
             minimal-build) parse_options minimal-build && shift ;;
             rtc-build) parse_options rtc-build && shift ;;
+            use-ffms2) parse_options use-ffms2 && shift ;;
             log-quiet) parse_options log-quiet && shift ;;
+            ext-lib-static) parse_options ext-lib-static && shift ;;
             asm | bindir | cc | cxx | gen | jobs | pgo-dir | pgo-videos | prefix | sanitizer | target_system | android-ndk)
                 parse_equal_option "$1" "$2"
                 case $1 in
@@ -523,7 +538,9 @@ else
             verbose) parse_options verbose && shift ;;
             minimal-build) parse_options minimal-build && shift ;;
             rtc-build) parse_options rtc-build && shift ;;
+            use-ffms2) parse_options use-ffms2 && shift ;;
             log-quiet) parse_options log-quiet && shift ;;
+            ext-lib-static) parse_options ext-lib-static && shift ;;
             end) ${IN_SCRIPT:-false} && exit ;;
             *) die "Error, unknown option: $1" ;;
             esac
