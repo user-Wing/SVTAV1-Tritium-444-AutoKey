@@ -206,7 +206,7 @@ static void create_me_context_and_picture_control(MotionEstimationContext_t* me_
                                                   PictureParentControlSet*   picture_control_set_ptr_frame,
                                                   PictureParentControlSet*   centre_pcs,
                                                   EbPictureBufferDesc* input_picture_ptr_central, int blk_row,
-                                                  int blk_col, uint32_t ss_x, uint32_t ss_y) {
+                                                  int blk_col) {
     // set reference picture for alt-refs
     me_context_ptr->me_ctx->alt_ref_reference_ptr = (EbPaReferenceObject*)
                                                         picture_control_set_ptr_frame->pa_ref_pic_wrapper->object_ptr;
@@ -246,7 +246,8 @@ static void create_me_context_and_picture_control(MotionEstimationContext_t* me_
     me_context_ptr->me_ctx->b64_src_stride = padded_pic_ptr->y_stride;
 
     // Load the 1/4 decimated SB from the 1/4 decimated input to the 1/4 intermediate SB buffer
-    buffer_index = ((b64_origin_y >> ss_y)) * quarter_pic_ptr->y_stride + (b64_origin_x >> ss_x);
+    // ME uses half-resolution luma regardless of chroma subsampling.
+    buffer_index = (b64_origin_y >> 1) * quarter_pic_ptr->y_stride + (b64_origin_x >> 1);
 
     me_context_ptr->me_ctx->quarter_b64_buffer        = &quarter_pic_ptr->y_buffer[buffer_index];
     me_context_ptr->me_ctx->quarter_b64_buffer_stride = quarter_pic_ptr->y_stride;
@@ -1423,6 +1424,28 @@ static void apply_filtering_block_plane_wise(MeContext* me_ctx, int block_row, i
     }
 }
 
+static uint32_t tf_highbd_variance(const AomVarianceFnPtr* fn_ptr, const uint16_t* a, int a_stride,
+                                  const uint16_t* b, int b_stride, int w, int h, int bd) {
+    if (bd != EB_TWELVE_BIT) {
+        uint32_t sse;
+        return fn_ptr->vf_hbd_10(CONVERT_TO_BYTEPTR(a), a_stride, CONVERT_TO_BYTEPTR(b), b_stride, &sse);
+    }
+    // Normalize native 12-bit samples to the same 8-bit variance units as vf_hbd_10.
+    uint64_t sse = 0;
+    int64_t sum = 0;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const int diff = a[y * a_stride + x] - b[y * b_stride + x];
+            sum += diff;
+            sse += (int64_t)diff * diff;
+        }
+    }
+    sse = ROUND_POWER_OF_TWO(sse, 8);
+    sum = ROUND_POWER_OF_TWO(sum, 4);
+    const int64_t variance = (int64_t)sse - sum * sum / (w * h);
+    return variance > 0 ? (uint32_t)variance : 0;
+}
+
 /*
  * Perform compensation and compute variance for a single block; used in TF subpel search.
  * If the searched MV has a better distortion than the passed best_dist, update best_mv_x,
@@ -1510,13 +1533,11 @@ static void svt_check_position(TF_SUBPEL_SEARCH_PARAMS* tf_sp_param, PicturePare
             tf_sp_param->bsize * tf_sp_param->idx_x;
         const AomVarianceFnPtr* fn_ptr = &svt_aom_mefn_ptr[block_size];
 
-        unsigned int sse;
-
-        distortion = fn_ptr->vf_hbd_10(CONVERT_TO_BYTEPTR(pred_y_ptr),
-                                       stride_pred[PLANE_Y] << tf_sp_param->subsampling_shift,
-                                       CONVERT_TO_BYTEPTR(src_y_ptr),
+        distortion = tf_highbd_variance(fn_ptr, pred_y_ptr,
+                                       stride_pred[PLANE_Y] << tf_sp_param->subsampling_shift, src_y_ptr,
                                        stride_src[PLANE_Y] << tf_sp_param->subsampling_shift,
-                                       &sse)
+                                       tf_sp_param->bsize, tf_sp_param->bsize >> tf_sp_param->subsampling_shift,
+                                       tf_sp_param->encoder_bit_depth)
             << tf_sp_param->subsampling_shift;
     }
 
@@ -2554,13 +2575,11 @@ static void convert_64x64_info_to_32x32_info(PictureParentControlSet* pcs, MeCon
                 const AomVarianceFnPtr* fn_ptr = pcs->tf_ctrls.sub_sampling_shift ? &svt_aom_mefn_ptr[BLOCK_32X16]
                                                                                   : &svt_aom_mefn_ptr[BLOCK_32X32];
 
-                unsigned int sse;
-
-                distortion = fn_ptr->vf_hbd_10(CONVERT_TO_BYTEPTR(pred_y_ptr),
-                                               stride_pred[PLANE_Y] << pcs->tf_ctrls.sub_sampling_shift,
-                                               CONVERT_TO_BYTEPTR(src_y_ptr),
+                distortion = tf_highbd_variance(fn_ptr, pred_y_ptr,
+                                               stride_pred[PLANE_Y] << pcs->tf_ctrls.sub_sampling_shift, src_y_ptr,
                                                stride_src[PLANE_Y] << pcs->tf_ctrls.sub_sampling_shift,
-                                               &sse)
+                                               bsize, bsize >> pcs->tf_ctrls.sub_sampling_shift,
+                                               pcs->scs->encoder_bit_depth)
                     << pcs->tf_ctrls.sub_sampling_shift;
             }
             ctx->tf_32x32_block_error[ctx->idx_32x32] = distortion;
@@ -2917,9 +2936,7 @@ static EbErrorType produce_temporally_filtered_pic(PictureParentControlSet** pcs
                                                               pcs_list[index_center],
                                                               input_picture_ptr_central,
                                                               blk_row,
-                                                              blk_col,
-                                                              ss_x,
-                                                              ss_y);
+                                                              blk_col);
                         ctx->num_of_list_to_search       = 1;
                         ctx->num_of_ref_pic_to_search[0] = 1;
                         ctx->num_of_ref_pic_to_search[1] = 0;
@@ -3396,9 +3413,7 @@ static EbErrorType produce_temporally_filtered_pic_ld(PictureParentControlSet** 
                                                           pcs_list[index_center],
                                                           input_picture_ptr_central,
                                                           blk_row,
-                                                          blk_col,
-                                                          ss_x,
-                                                          ss_y);
+                                                          blk_col);
                     ctx->num_of_list_to_search       = 1;
                     ctx->num_of_ref_pic_to_search[0] = 1;
                     ctx->num_of_ref_pic_to_search[1] = 0;
@@ -3479,14 +3494,11 @@ static EbErrorType produce_temporally_filtered_pic_ld(PictureParentControlSet** 
                                     ? &svt_aom_mefn_ptr[BLOCK_32X16]
                                     : &svt_aom_mefn_ptr[BLOCK_32X32];
 
-                                unsigned int sse;
-
-                                distortion = fn_ptr->vf_hbd_10(
-                                                 CONVERT_TO_BYTEPTR(pred_y_ptr),
+                                distortion = tf_highbd_variance(fn_ptr, pred_y_ptr,
                                                  stride_pred[PLANE_Y] << centre_pcs->tf_ctrls.sub_sampling_shift,
-                                                 CONVERT_TO_BYTEPTR(src_y_ptr),
-                                                 stride[PLANE_Y] << centre_pcs->tf_ctrls.sub_sampling_shift,
-                                                 &sse)
+                                                 src_y_ptr, stride[PLANE_Y] << centre_pcs->tf_ctrls.sub_sampling_shift,
+                                                 bsize, bsize >> centre_pcs->tf_ctrls.sub_sampling_shift,
+                                                 encoder_bit_depth)
                                     << centre_pcs->tf_ctrls.sub_sampling_shift;
                             }
                             ctx->tf_32x32_block_error[ctx->idx_32x32] = distortion;

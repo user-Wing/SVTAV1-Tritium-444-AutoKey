@@ -1548,6 +1548,16 @@ void svt_aom_downsample_filtering_input_picture(PictureParentControlSet* pcs, Eb
 
 void svt_aom_pad_input_pictures(SequenceControlSet* scs, EbPictureBufferDesc* input_pic) {
     // Pad pictures to multiple min cu size
+    if (input_pic->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            svt_aom_pad_input_picture_16bit(input_pic->input12[p], input_pic->stride[p],
+                                           input_pic->width - scs->pad_right, input_pic->height - scs->pad_bottom,
+                                           scs->pad_right, scs->pad_bottom);
+            svt_aom_generate_padding16_bit(input_pic->input12[p], input_pic->stride[p],
+                                           input_pic->width, input_pic->height,
+                                           input_pic->border, input_pic->border);
+        }
+    }
     // For non-8 aligned case, like 426x240, padding to 432x240 first
     svt_aom_pad_picture_to_multiple_of_min_blk_size_dimensions(scs, input_pic);
 
@@ -1965,6 +1975,9 @@ EbErrorType svt_aom_picture_analysis_kernel_iter(void* context) {
 
             // Pre processing operations performed on the input picture
             svt_aom_picture_pre_processing_operations(pcs, scs);
+            if (input_pic->bit_depth == EB_TWELVE_BIT && scs->static_config.film_grain_denoise_strength &&
+                scs->static_config.film_grain_denoise_apply)
+                svt_aom_pad_input_pictures(scs, input_pic);
 
             if (input_pic->color_format >= EB_YUV422) {
                 // Jing: Do the conversion of 422/444=>420 here since it's multi-threaded kernel

@@ -790,6 +790,19 @@ void save_YUV_to_file_highbd(char* filename, uint16_t* y_buffer, uint16_t* buffe
 
 static void pack_highbd_pic_2d(const EbPictureBufferDesc* pic_ptr, uint16_t* buffer_16bit[3], uint32_t ss_x,
                                uint32_t ss_y) {
+    if (pic_ptr->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            if (!buffer_16bit[p]) continue;
+            const int border_x = pic_ptr->border >> (p ? ss_x : 0);
+            const int border_y = pic_ptr->border >> (p ? ss_y : 0);
+            const int offset = border_x + border_y * pic_ptr->stride[p];
+            svt_pack_ref_bd(pic_ptr->buffer[p] - offset, pic_ptr->stride[p],
+                            pic_ptr->buffer_bit_inc[p] - offset, pic_ptr->stride_bit_inc[p],
+                            buffer_16bit[p], pic_ptr->stride[p], pic_ptr->stride[p],
+                            (pic_ptr->height >> (p ? ss_y : 0)) + 2 * border_y, 12);
+        }
+        return;
+    }
     uint16_t width  = pic_ptr->y_stride;
     uint16_t height = (uint16_t)(pic_ptr->height + (2 * pic_ptr->border));
     svt_aom_pack2d_src(pic_ptr->y_buffer - (pic_ptr->border + (pic_ptr->y_stride * pic_ptr->border)),
@@ -829,6 +842,19 @@ static void pack_highbd_pic_2d(const EbPictureBufferDesc* pic_ptr, uint16_t* buf
 
 static void svt_aom_unpack_highbd_pic_2d(uint16_t* buffer_highbd[3], EbPictureBufferDesc* pic_ptr, uint32_t ss_x,
                                          uint32_t ss_y) {
+    if (pic_ptr->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            if (!buffer_highbd[p]) continue;
+            const int border_x = pic_ptr->border >> (p ? ss_x : 0);
+            const int border_y = pic_ptr->border >> (p ? ss_y : 0);
+            const int offset = border_x + border_y * pic_ptr->stride[p];
+            svt_unpack_ref_bd(buffer_highbd[p], pic_ptr->stride[p],
+                              pic_ptr->buffer[p] - offset, pic_ptr->stride[p],
+                              pic_ptr->buffer_bit_inc[p] - offset, pic_ptr->stride_bit_inc[p],
+                              pic_ptr->stride[p], (pic_ptr->height >> (p ? ss_y : 0)) + 2 * border_y, 12);
+        }
+        return;
+    }
     uint16_t width  = pic_ptr->y_stride;
     uint16_t height = (uint16_t)(pic_ptr->height + (2 * pic_ptr->border));
 
@@ -1431,7 +1457,19 @@ EbErrorType svt_aom_downscaled_source_buffer_desc_ctor(EbPictureBufferDesc** pic
                 : false;
     initData.border             = picture_ptr_for_reference->border;
 
-    EB_NEW(*picture_ptr, svt_picture_buffer_desc_ctor, (EbPtr)&initData);
+    if (initData.bit_depth == EB_TWELVE_BIT) {
+        initData.max_width = ALIGN_POWER_OF_TWO(initData.max_width, 3);
+        EB_NEW(*picture_ptr, svt_picture_buffer_desc_ctor, (EbPtr)&initData);
+        EbPictureBufferDesc* pic = *picture_ptr;
+        pic->width = spr_params.encoding_width;
+        EB_MALLOC_ALIGNED_ARRAY(pic->input12_alloc, pic->luma_size + 2 * pic->chroma_size);
+        pic->input12[0] = pic->input12_alloc + pic->border * (pic->y_stride + 1);
+        for (int p = 1; p < 3; p++)
+            pic->input12[p] = pic->input12_alloc + pic->luma_size + (p - 1) * pic->chroma_size +
+                              pic->border * (pic->stride[p] + 1);
+    } else {
+        EB_NEW(*picture_ptr, svt_picture_buffer_desc_ctor, (EbPtr)&initData);
+    }
 
     return EB_ErrorNone;
 }
@@ -1534,14 +1572,12 @@ static EbErrorType allocate_downscaled_reference_pics(EbPictureBufferDesc**    d
     ref_pic_buf_desc_init_data.border = picture_ptr_for_reference->border;
     ref_pic_buf_desc_init_data.mfmv   = pcs->scs->mfmv_enabled;
 
-    //TODO:12bit
-    if (ref_pic_buf_desc_init_data.bit_depth == EB_TEN_BIT) {
+    if (ref_pic_buf_desc_init_data.bit_depth > EB_EIGHT_BIT) {
         // Hsan: set split_mode to 0 to construct the packed reference buffer (used @ EP)
 
         // align with svt_reference_object_ctor()
         // Use 10bit here to use in MD
         ref_pic_buf_desc_init_data.split_mode = true;
-        ref_pic_buf_desc_init_data.bit_depth  = EB_TEN_BIT;
         EB_NEW(*downscaled_reference_picture_ptr, svt_picture_buffer_desc_ctor, (EbPtr)&ref_pic_buf_desc_init_data);
     } else {
         // Hsan: set split_mode to 0 to as 8BIT input

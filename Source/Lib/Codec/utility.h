@@ -61,7 +61,7 @@ typedef struct BlockGeom {
 #endif
 } BlockGeom;
 
-void svt_aom_build_blk_geom(GeomIndex geom, BlockGeom* blk_geom_table);
+void svt_aom_build_blk_geom(GeomIndex geom, BlockGeom* blk_geom_table, uint16_t ss_x, uint16_t ss_y);
 
 static INLINE const BlockGeom* get_blk_geom_mds(const BlockGeom* blk_geom_table, uint32_t bidx_mds) {
     return &blk_geom_table[bidx_mds];

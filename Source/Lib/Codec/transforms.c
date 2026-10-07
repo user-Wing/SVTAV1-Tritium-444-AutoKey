@@ -3513,28 +3513,28 @@ static void highbd_fwd_txfm_32x64_n4(int16_t* src_diff, TranLow* coeff, int diff
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_32x64_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_32x64_N4_c : svt_av1_fwd_txfm2d_32x64_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
 }
 
 static void highbd_fwd_txfm_64x32_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_64x32_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_64x32_N4_c : svt_av1_fwd_txfm2d_64x32_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x64_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_16x64_N4(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_16x64_N4_c : svt_av1_fwd_txfm2d_16x64_N4)(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
 }
 
 static void highbd_fwd_txfm_64x16_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_64x16_N4(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_64x16_N4_c : svt_av1_fwd_txfm2d_64x16_N4)(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
 }
 
 static void highbd_fwd_txfm_32x32_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
@@ -3560,56 +3560,56 @@ static void highbd_fwd_txfm_8x8_n4(int16_t* src_diff, TranLow* coeff, int diff_s
 
 static void highbd_fwd_txfm_4x8_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_4x8_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_4x8_N4_c : svt_av1_fwd_txfm2d_4x8_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x4_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_8x4_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_8x4_N4_c : svt_av1_fwd_txfm2d_8x4_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x16_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t*     dst_coeff = (int32_t*)coeff;
     const TxType tx_type   = txfm_param->tx_type;
     const int    bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_8x16_N4(src_diff, dst_coeff, diff_stride, tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_8x16_N4_c : svt_av1_fwd_txfm2d_8x16_N4)(src_diff, dst_coeff, diff_stride, tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x8_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t*     dst_coeff = (int32_t*)coeff;
     const TxType tx_type   = txfm_param->tx_type;
     const int    bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_16x8_N4(src_diff, dst_coeff, diff_stride, tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_16x8_N4_c : svt_av1_fwd_txfm2d_16x8_N4)(src_diff, dst_coeff, diff_stride, tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x32_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_16x32_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_16x32_N4_c : svt_av1_fwd_txfm2d_16x32_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_32x16_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_32x16_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_32x16_N4_c : svt_av1_fwd_txfm2d_32x16_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_4x16_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_4x16(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_4x16_c : svt_av1_fwd_txfm2d_4x16)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_16x4_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_16x4_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_16x4_N4_c : svt_av1_fwd_txfm2d_16x4_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x32_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_8x32_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_8x32_N4_c : svt_av1_fwd_txfm2d_8x32_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_32x8_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_32x8_N4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_32x8_N4_c : svt_av1_fwd_txfm2d_32x8_N4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 //PF_N2
@@ -3624,28 +3624,28 @@ static void highbd_fwd_txfm_32x64_n2(int16_t* src_diff, TranLow* coeff, int diff
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_32x64_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_32x64_N2_c : svt_av1_fwd_txfm2d_32x64_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
 }
 
 static void highbd_fwd_txfm_64x32_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_64x32_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_64x32_N2_c : svt_av1_fwd_txfm2d_64x32_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x64_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_16x64_N2(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_16x64_N2_c : svt_av1_fwd_txfm2d_16x64_N2)(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
 }
 
 static void highbd_fwd_txfm_64x16_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_64x16_N2(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_64x16_N2_c : svt_av1_fwd_txfm2d_64x16_N2)(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
 }
 
 static void highbd_fwd_txfm_32x32_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
@@ -3671,56 +3671,56 @@ static void highbd_fwd_txfm_8x8_n2(int16_t* src_diff, TranLow* coeff, int diff_s
 
 static void highbd_fwd_txfm_4x8_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_4x8_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_4x8_N2_c : svt_av1_fwd_txfm2d_4x8_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x4_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_8x4_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_8x4_N2_c : svt_av1_fwd_txfm2d_8x4_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x16_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t*     dst_coeff = (int32_t*)coeff;
     const TxType tx_type   = txfm_param->tx_type;
     const int    bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_8x16_N2(src_diff, dst_coeff, diff_stride, tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_8x16_N2_c : svt_av1_fwd_txfm2d_8x16_N2)(src_diff, dst_coeff, diff_stride, tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x8_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t*     dst_coeff = (int32_t*)coeff;
     const TxType tx_type   = txfm_param->tx_type;
     const int    bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_16x8_N2(src_diff, dst_coeff, diff_stride, tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_16x8_N2_c : svt_av1_fwd_txfm2d_16x8_N2)(src_diff, dst_coeff, diff_stride, tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x32_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_16x32_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_16x32_N2_c : svt_av1_fwd_txfm2d_16x32_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_32x16_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_32x16_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_32x16_N2_c : svt_av1_fwd_txfm2d_32x16_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_4x16_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_4x16(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_4x16_c : svt_av1_fwd_txfm2d_4x16)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_16x4_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_16x4_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_16x4_N2_c : svt_av1_fwd_txfm2d_16x4_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x32_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_8x32_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_8x32_N2_c : svt_av1_fwd_txfm2d_8x32_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_32x8_n2(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_32x8_N2(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_32x8_N2_c : svt_av1_fwd_txfm2d_32x8_N2)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_64x64(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
@@ -3734,28 +3734,28 @@ static void highbd_fwd_txfm_32x64(int16_t* src_diff, TranLow* coeff, int diff_st
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_32x64(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_32x64_c : svt_av1_fwd_txfm2d_32x64)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
 }
 
 static void highbd_fwd_txfm_64x32(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_64x32(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_64x32_c : svt_av1_fwd_txfm2d_64x32)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x64(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_16x64(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_16x64_c : svt_av1_fwd_txfm2d_16x64)(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
 }
 
 static void highbd_fwd_txfm_64x16(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     assert(txfm_param->tx_type == DCT_DCT);
     int32_t*  dst_coeff = (int32_t*)coeff;
     const int bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_64x16(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_64x16_c : svt_av1_fwd_txfm2d_64x16)(src_diff, dst_coeff, diff_stride, DCT_DCT, bd);
 }
 
 static void highbd_fwd_txfm_32x32(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
@@ -3781,56 +3781,56 @@ static void highbd_fwd_txfm_8x8(int16_t* src_diff, TranLow* coeff, int diff_stri
 
 static void highbd_fwd_txfm_4x8(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_4x8(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_4x8_c : svt_av1_fwd_txfm2d_4x8)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_8x4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_8x4_c : svt_av1_fwd_txfm2d_8x4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x16(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t*     dst_coeff = (int32_t*)coeff;
     const TxType tx_type   = txfm_param->tx_type;
     const int    bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_8x16(src_diff, dst_coeff, diff_stride, tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_8x16_c : svt_av1_fwd_txfm2d_8x16)(src_diff, dst_coeff, diff_stride, tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x8(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t*     dst_coeff = (int32_t*)coeff;
     const TxType tx_type   = txfm_param->tx_type;
     const int    bd        = txfm_param->bd;
-    svt_av1_fwd_txfm2d_16x8(src_diff, dst_coeff, diff_stride, tx_type, bd);
+    (bd == 12 ? svt_av1_fwd_txfm2d_16x8_c : svt_av1_fwd_txfm2d_16x8)(src_diff, dst_coeff, diff_stride, tx_type, bd);
 }
 
 static void highbd_fwd_txfm_16x32(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_16x32(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_16x32_c : svt_av1_fwd_txfm2d_16x32)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_32x16(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_32x16(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_32x16_c : svt_av1_fwd_txfm2d_32x16)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_4x16(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_4x16(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_4x16_c : svt_av1_fwd_txfm2d_4x16)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_16x4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_16x4(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_16x4_c : svt_av1_fwd_txfm2d_16x4)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_8x32(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_8x32(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_8x32_c : svt_av1_fwd_txfm2d_8x32)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 static void highbd_fwd_txfm_32x8(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
     int32_t* dst_coeff = (int32_t*)coeff;
-    svt_av1_fwd_txfm2d_32x8(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
+    (txfm_param->bd == 12 ? svt_av1_fwd_txfm2d_32x8_c : svt_av1_fwd_txfm2d_32x8)(src_diff, dst_coeff, diff_stride, txfm_param->tx_type, txfm_param->bd);
 }
 
 void svt_av1_highbd_fwd_txfm_n4(int16_t* src_diff, TranLow* coeff, int diff_stride, TxfmParam* txfm_param) {
@@ -7451,4 +7451,42 @@ void svt_av1_fwd_txfm2d_4x8_N4_c(int16_t* input, int32_t* output, uint32_t input
     Txfm2dFlipCfg cfg;
     svt_aom_transform_config(transform_type, TX_4X8, &cfg);
     av1_tranform_two_d_core_N4_c(input, input_stride, output, &cfg, intermediate_transform_buffer, bit_depth);
+}
+
+// Keep MD and EncDec chroma coefficient indices in entropy-coding order.
+uint16_t svt_aom_build_444_uv_tx_layout(BlockSize bsize, uint8_t tx_depth, bool is_inter,
+                                         TxSize tx_size_uv, Position uv_org[MAX_TXB_COUNT_UV]) {
+    const int    uv_w       = tx_size_wide[tx_size_uv];
+    const int    uv_h       = tx_size_high[tx_size_uv];
+    const int    block_w    = block_size_wide[bsize];
+    const int    block_h    = block_size_high[bsize];
+    uint16_t     count      = 0;
+
+    if (tx_depth == 0) {
+        const TxSize  luma_tx      = tx_depth_to_tx_size[0][bsize];
+        const int     luma_tx_w    = tx_size_wide[luma_tx];
+        const int     luma_tx_h    = tx_size_high[luma_tx];
+        const uint8_t luma_tx_count = tx_blocks_per_depth[bsize][0];
+
+        for (uint8_t i = 0; i < luma_tx_count; ++i) {
+            const Position base = tx_org[bsize][is_inter][0][i];
+            const int region_w  = MIN(luma_tx_w, block_w - base.x);
+            const int region_h  = MIN(luma_tx_h, block_h - base.y);
+            for (int y = 0; y < region_h; y += uv_h) {
+                for (int x = 0; x < region_w; x += uv_w) {
+                    assert(count < MAX_TXB_COUNT_UV);
+                    uv_org[count++] = (Position){base.x + x, base.y + y};
+                }
+            }
+        }
+    } else {
+        for (int y = 0; y < block_h; y += uv_h) {
+            for (int x = 0; x < block_w; x += uv_w) {
+                assert(count < MAX_TXB_COUNT_UV);
+                uv_org[count++] = (Position){x, y};
+            }
+        }
+    }
+
+    return count;
 }

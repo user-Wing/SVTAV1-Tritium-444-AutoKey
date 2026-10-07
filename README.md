@@ -1,5 +1,7 @@
 # Scalable Video Technology for AV1 (SVT-AV1 Encoder)
 
+> **Branch note:** `yuv444-10-12-scd` carries the local YUV444 10-bit / 12-bit encoder work and scene-change keyframe implementation only. Start with [README-YUV444-SCD.md](README-YUV444-SCD.md); implementation notes and validation results are under `Docs/YUV444_*.md`.
+
 The Scalable Video Technology for AV1 (SVT-AV1 Encoder) is an
 AV1-compliant software encoder library. The work on the SVT-AV1 encoder
 targets the development of a production-quality AV1-encoder with performance

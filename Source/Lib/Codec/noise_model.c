@@ -2184,7 +2184,7 @@ EbErrorType svt_aom_denoise_and_model_ctor(AomDenoiseAndModel* object_ptr, EbPtr
 
     object_ptr->block_size  = denoise_block_size;
     object_ptr->noise_level = (float)(init_data_ptr->noise_level / 10.0);
-    object_ptr->bit_depth   = SVT_EFFECTIVE_BIT_DEPTH(init_data_ptr->encoder_bit_depth) > EB_EIGHT_BIT ? 10 : 8;
+    object_ptr->bit_depth   = SVT_EFFECTIVE_BIT_DEPTH(init_data_ptr->encoder_bit_depth);
 
     object_ptr->width     = init_data_ptr->width;
     object_ptr->height    = init_data_ptr->height;
@@ -2212,7 +2212,8 @@ EbErrorType svt_aom_denoise_and_model_ctor(AomDenoiseAndModel* object_ptr, EbPtr
 
 static int32_t denoise_and_model_realloc_if_necessary(struct AomDenoiseAndModel* ctx, EbPictureBufferDesc* sd,
                                                       int32_t use_highbd) {
-    const int32_t chroma_sub_log2[2] = {1, 1}; //todo: send chroma subsampling
+    const int32_t chroma_sub_log2[2] = {sd->color_format == EB_YUV444 ? 0 : 1,
+                                      sd->color_format >= EB_YUV422 ? 0 : 1};
 
     free(ctx->flat_blocks);
     ctx->flat_blocks = NULL;
@@ -2245,10 +2246,25 @@ static int32_t denoise_and_model_realloc_if_necessary(struct AomDenoiseAndModel*
 }
 
 static void unpack_2d_pic(uint8_t* packed[3], EbPictureBufferDesc* outputPicturePtr) {
+    const int ss_x = outputPicturePtr->color_format == EB_YUV444 ? 0 : 1;
+    const int ss_y = outputPicturePtr->color_format >= EB_YUV422 ? 0 : 1;
+    if (outputPicturePtr->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            const uint16_t* source = (const uint16_t*)packed[p];
+            for (int y = 0; y < (outputPicturePtr->height >> (p ? ss_y : 0)); y++) {
+                for (int x = 0; x < (outputPicturePtr->width >> (p ? ss_x : 0)); x++) {
+                    const int offset = y * outputPicturePtr->stride[p] + x;
+                    outputPicturePtr->input12[p][offset] = source[offset];
+                    outputPicturePtr->buffer[p][offset] = source[offset] >> 4;
+                }
+            }
+        }
+        return;
+    }
     uint16_t luma_width    = (uint16_t)(outputPicturePtr->width);
-    uint16_t chroma_width  = luma_width >> 1;
+    uint16_t chroma_width  = luma_width >> ss_x;
     uint16_t luma_height   = (uint16_t)(outputPicturePtr->height);
-    uint16_t chroma_height = luma_height >> 1;
+    uint16_t chroma_height = luma_height >> ss_y;
 
     svt_unpack_and_2bcompress((uint16_t*)(packed[0]),
                               outputPicturePtr->y_stride,
@@ -2282,7 +2298,8 @@ int32_t svt_aom_denoise_and_model_run(struct AomDenoiseAndModel* ctx, EbPictureB
                                       int32_t use_highbd) {
     const int32_t block_size = ctx->block_size;
     uint8_t*      raw_data[3];
-    int32_t       chroma_sub_log2[2] = {1, 1}; //todo: send chroma subsampling
+    int32_t       chroma_sub_log2[2] = {sd->color_format == EB_YUV444 ? 0 : 1,
+                                      sd->color_format >= EB_YUV422 ? 0 : 1};
     int32_t       strides[3]         = {sd->y_stride, sd->u_stride, sd->v_stride};
 
     if (!denoise_and_model_realloc_if_necessary(ctx, sd, use_highbd)) {
@@ -2294,7 +2311,7 @@ int32_t svt_aom_denoise_and_model_run(struct AomDenoiseAndModel* ctx, EbPictureB
         raw_data[0] = sd->y_buffer;
         raw_data[1] = sd->u_buffer;
         raw_data[2] = sd->v_buffer;
-    } else { // 10 bits input
+    } else { // High bit depth input
         svt_aom_pack_2d_pic(sd, ctx->packed);
 
         raw_data[0] = (uint8_t*)(ctx->packed[0]);
@@ -2349,9 +2366,9 @@ int32_t svt_aom_denoise_and_model_run(struct AomDenoiseAndModel* ctx, EbPictureB
             if (!use_highbd) {
                 SVT_MEMCPY(raw_data[0], ctx->denoised[0], (strides[0] * sd->height) << use_highbd);
                 SVT_MEMCPY(
-                    raw_data[1], ctx->denoised[1], (strides[1] * (sd->height >> chroma_sub_log2[0])) << use_highbd);
+                    raw_data[1], ctx->denoised[1], (strides[1] * (sd->height >> chroma_sub_log2[1])) << use_highbd);
                 SVT_MEMCPY(
-                    raw_data[2], ctx->denoised[2], (strides[2] * (sd->height >> chroma_sub_log2[0])) << use_highbd);
+                    raw_data[2], ctx->denoised[2], (strides[2] * (sd->height >> chroma_sub_log2[1])) << use_highbd);
             } else {
                 unpack_2d_pic(ctx->denoised, sd);
             }

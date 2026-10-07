@@ -1042,6 +1042,10 @@ static INLINE void iadst16_col_avx512(__m512i* in, __m512i* out, const int8_t co
 
 void svt_av1_inv_txfm2d_add_16x16_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_inv_txfm2d_add_16x16_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, bd);
+        return;
+    }
     __m512i       in[16], out[16];
     const int8_t* shift   = svt_aom_inv_txfm_shift_ls[TX_16X16];
     const int32_t txw_idx = get_txw_idx(TX_16X16);
@@ -1711,6 +1715,10 @@ static void assign_32x32_input_from_64x64_avx512(const __m512i* in, __m512i* in3
 
 void svt_av1_inv_txfm2d_add_32x32_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_inv_txfm2d_add_32x32_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, bd);
+        return;
+    }
     __m512i       in_avx512[64], out_avx512[128];
     const int8_t* shift     = svt_aom_inv_txfm_shift_ls[TX_32X32];
     const int32_t txw_idx   = get_txw_idx(TX_32X32);
@@ -1786,6 +1794,10 @@ static void write_buffer_64x64_avx512(__m512i* in, uint16_t* output_r, int32_t s
 
 void svt_av1_inv_txfm2d_add_64x64_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_inv_txfm2d_add_64x64_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, bd);
+        return;
+    }
     __m512i       in[64 * 64 / 16], out[64 * 64 / 16];
     const int8_t* shift   = svt_aom_inv_txfm_shift_ls[TX_64X64];
     const int32_t txw_idx = tx_size_wide_log2[TX_64X64] - tx_size_wide_log2[0];
@@ -2569,6 +2581,10 @@ static INLINE void av1_round_shift_rect_array_32_avx512(__m512i* input, __m512i*
 
 void svt_av1_inv_txfm2d_add_16x64_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_highbd_inv_txfm_add_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, TX_16X64, 512, bd);
+        return;
+    }
     (void)tx_type;
     (void)eob;
     __m512i       in[64], out[64];
@@ -2599,6 +2615,10 @@ void svt_av1_inv_txfm2d_add_16x64_avx512(const int32_t* coeff, uint16_t* output_
 
 void svt_av1_inv_txfm2d_add_64x16_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_highbd_inv_txfm_add_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, TX_64X16, 512, bd);
+        return;
+    }
     (void)tx_type;
     (void)eob;
     __m512i       in[64], out[64];
@@ -2626,6 +2646,10 @@ void svt_av1_inv_txfm2d_add_64x16_avx512(const int32_t* coeff, uint16_t* output_
 
 void svt_av1_inv_txfm2d_add_32x64_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_highbd_inv_txfm_add_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, TX_32X64, 1024, bd);
+        return;
+    }
     (void)tx_type;
     (void)eob;
     __m512i       in[128], out[128];
@@ -2657,6 +2681,10 @@ void svt_av1_inv_txfm2d_add_32x64_avx512(const int32_t* coeff, uint16_t* output_
 
 void svt_av1_inv_txfm2d_add_64x32_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_highbd_inv_txfm_add_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, TX_64X32, 1024, bd);
+        return;
+    }
     (void)tx_type;
     (void)eob;
     __m512i       in[128], out[128];
@@ -2726,6 +2754,10 @@ static const inv_transform_1d_avx512 row_invtxfm_16x32_arr[TX_TYPES] = {
 
 void svt_av1_inv_txfm2d_add_16x32_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_highbd_inv_txfm_add_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, TX_16X32, 512, bd);
+        return;
+    }
     (void)eob;
     __m512i                       in[32], out[32];
     const int8_t*                 shift         = svt_aom_inv_txfm_shift_ls[tx_size];
@@ -2758,6 +2790,10 @@ void svt_av1_inv_txfm2d_add_16x32_avx512(const int32_t* coeff, uint16_t* output_
 
 void svt_av1_inv_txfm2d_add_32x16_avx512(const int32_t* coeff, uint16_t* output_r, int32_t stride_r, uint16_t* output_w,
                                          int32_t stride_w, TxType tx_type, TxSize tx_size, int32_t eob, int32_t bd) {
+    if (bd == 12) {
+        svt_av1_highbd_inv_txfm_add_sse4_1(coeff, output_r, stride_r, output_w, stride_w, tx_type, TX_32X16, 512, bd);
+        return;
+    }
     (void)eob;
     __m512i                       in[32], out[32];
     const int8_t*                 shift         = svt_aom_inv_txfm_shift_ls[tx_size];

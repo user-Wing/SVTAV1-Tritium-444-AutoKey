@@ -199,6 +199,7 @@ static void picture_decision_context_dctor(EbPtr p) {
     EB_FREE_2D(obj->ahd_running_avg);
     EB_FREE_2D(obj->ahd_running_avg_cr);
     EB_FREE_2D(obj->ahd_running_avg_cb);
+    EB_FREE_ARRAY(obj->scd_prev_pic.y_buffer);
     EB_FREE_ARRAY(obj);
 }
 
@@ -236,6 +237,13 @@ EbErrorType svt_aom_picture_decision_context_ctor(EbThreadContext* thread_ctx, c
         EB_CALLOC_2D(pd_ctx->ahd_running_avg,
                      MAX_NUMBER_OF_REGIONS_IN_WIDTH * sizeof(uint32_t),
                      MAX_NUMBER_OF_REGIONS_IN_HEIGHT * sizeof(uint32_t));
+    }
+    const SequenceControlSet* scs = enc_handle_ptr->scs_instance->scs;
+    if (scs->static_config.scene_change_detection == 2) {
+        // SIMD SAD kernels load masked lanes beyond the visible right edge.
+        pd_ctx->scd_prev_pic.y_stride = ((scs->max_input_luma_width + 63) / 64) * 16 + 32;
+        EB_CALLOC_ARRAY(pd_ctx->scd_prev_pic.y_buffer,
+                        pd_ctx->scd_prev_pic.y_stride * ((scs->max_input_luma_height + 63) / 64) * 16);
     }
     pd_ctx->reset_running_avg = true;
     pd_ctx->me_fifo_ptr       = svt_system_resource_get_producer_fifo(enc_handle_ptr->me_pool_ptr, 0);
@@ -281,7 +289,7 @@ static bool scene_transition_detector(PictureDecisionContext* pd_ctx, SequenceCo
 
     uint32_t region_count_threshold = (uint32_t)(((float)((scs->picture_analysis_number_of_regions_per_width *
                                                            scs->picture_analysis_number_of_regions_per_height) *
-                                                          50) /
+                                                          (scs->static_config.scene_change_detection == 2 ? 25 : 50)) /
                                                   100) +
                                                  0.5);
 
@@ -4683,6 +4691,12 @@ static void check_window_availability(SequenceControlSet* scs, EncodeContext* en
                            ->end_of_sequence_flag == true) {
                 *window_avail = false;
                 *eos_reached  = true;
+                if (scs->static_config.scene_change_detection) {
+                    // The final picture is still a valid next-frame sample
+                    // for rejecting flashes, even without the full TF window.
+                    pcs->pd_window[2 + window_index] = (PictureParentControlSet*)enc_ctx
+                        ->picture_decision_reorder_queue[entry_index]->ppcs_wrapper->object_ptr;
+                }
                 break;
             } else {
                 pcs->pd_window[2 + window_index] = (PictureParentControlSet*)enc_ctx
@@ -4693,11 +4707,106 @@ static void check_window_availability(SequenceControlSet* scs, EncodeContext* en
     }
 }
 
+// Source-domain costs, available before GOP/reference assignment.
+// Both predictors use the same quarter-width/height 8-bit luma and SAD scale.
+typedef struct ScdPredictionCost {
+    uint64_t intra, inter;
+    uint32_t weak_blocks, blocks;
+} ScdPredictionCost;
+
+static EbPictureBufferDesc* scd_source(PictureParentControlSet* pcs) {
+    return ((EbPaReferenceObject*)pcs->pa_ref_pic_wrapper->object_ptr)->sixteenth_downsampled_picture_ptr;
+}
+
+static ScdPredictionCost scd_prediction_cost(const EbPictureBufferDesc* src, const EbPictureBufferDesc* ref) {
+    ScdPredictionCost cost = {0};
+    const uint32_t width = MIN(src->width, ref->width), height = MIN(src->height, ref->height);
+    const uint8_t* src_base = src->y_buffer;
+    const uint8_t* ref_base = ref->y_buffer;
+    // Sample one complete 8x8 block per 16x16 area, without reading padding.
+    for (uint32_t y = 0; y + 8 <= height; y += 16) {
+        for (uint32_t x = 0; x + 8 <= width; x += 16) {
+            const uint8_t* block = src_base + y * src->y_stride + x;
+            uint32_t sum = 0, count = 0;
+            for (uint32_t i = 0; i < 8; ++i) {
+                if (y) { sum += block[(int)i - (int)src->y_stride]; ++count; }
+                if (x) { sum += block[(int)(i * src->y_stride) - 1]; ++count; }
+            }
+            const uint32_t dc = count ? (sum + count / 2) / count : 128;
+            uint64_t dc_cost = 0, v_cost = 0, h_cost = 0;
+            for (uint32_t j = 0; j < 8; ++j) {
+                for (uint32_t i = 0; i < 8; ++i) {
+                    const int pixel = block[j * src->y_stride + i];
+                    dc_cost += ABS(pixel - (int)dc);
+                    v_cost += ABS(pixel - (y ? block[(int)i - (int)src->y_stride] : (int)dc));
+                    h_cost += ABS(pixel - (x ? block[(int)(j * src->y_stride) - 1] : (int)dc));
+                }
+            }
+            const uint64_t intra = MAX(MIN(dc_cost, MIN(v_cost, h_cost)), 64);
+            const uint32_t left = x > 8 ? x - 8 : 0, top = y > 8 ? y - 8 : 0;
+            const uint32_t right = MIN(x + 8, width - 8), bottom = MIN(y + 8, height - 8);
+            uint64_t inter = UINT64_MAX;
+            int16_t best_x = 0, best_y = 0;
+            svt_sad_loop_kernel((uint8_t*)block, src->y_stride,
+                                (uint8_t*)(ref_base + top * ref->y_stride + left), ref->y_stride,
+                                8, 8, &inter, &best_x, &best_y, ref->y_stride, 0,
+                                right - left + 1, bottom - top + 1);
+            cost.intra += intra;
+            cost.inter += inter;
+            cost.weak_blocks += inter * 100 >= intra * 90;
+            ++cost.blocks;
+        }
+    }
+    return cost;
+}
+
+static bool scd_confirm_candidate(SequenceControlSet* scs, PictureParentControlSet* pcs,
+                                  PictureDecisionContext* ctx) {
+    EbPictureBufferDesc* current = scd_source(pcs);
+    if (!ctx->scd_prev_valid || pcs->picture_number <= ctx->scd_flash_end_poc) return false;
+    const ScdPredictionCost cut = scd_prediction_cost(current, &ctx->scd_prev_pic);
+    bool accept = cut.inter * 100 >= cut.intra * 90 && cut.weak_blocks * 5 >= cut.blocks * 2;
+    uint32_t checked = 0;
+    // Flash/occlusion: future frames become predictable from the old scene.
+    for (uint32_t i = 2; accept && i < MIN(2 + scs->scd_delay, 5); ++i) {
+        PictureParentControlSet* future = pcs->pd_window[i];
+        if (!future) break;
+        const ScdPredictionCost old_scene = scd_prediction_cost(scd_source(future), &ctx->scd_prev_pic);
+        const ScdPredictionCost new_scene = scd_prediction_cost(scd_source(future), current);
+        accept = old_scene.inter > new_scene.inter + new_scene.blocks * 32;
+        if (!accept && old_scene.inter * 2 + new_scene.blocks * 32 < new_scene.inter &&
+            old_scene.inter * 2 < old_scene.intra)
+            ctx->scd_flash_end_poc = future->picture_number;
+        ++checked;
+    }
+    return accept && checked;
+}
+
+static void scd_save_previous(PictureParentControlSet* pcs, PictureDecisionContext* ctx) {
+    const EbPictureBufferDesc* src = scd_source(pcs);
+    ctx->scd_prev_pic.width = src->width;
+    ctx->scd_prev_pic.height = src->height;
+    assert(src->width <= ctx->scd_prev_pic.y_stride);
+    const uint8_t* base = src->y_buffer;
+    for (uint32_t y = 0; y < src->height; ++y)
+        svt_memcpy(ctx->scd_prev_pic.y_buffer + y * ctx->scd_prev_pic.y_stride,
+                   base + y * src->y_stride, src->width);
+    ctx->scd_prev_valid = true;
+}
+
 // Perform scene change detection and update relevant signals
 static void perform_scene_change_detection(SequenceControlSet* scs, PictureParentControlSet* pcs,
                                            PictureDecisionContext* ctx) {
     if (scs->static_config.scene_change_detection) {
         pcs->scene_change_flag = scene_transition_detector(ctx, scs, (PictureParentControlSet**)pcs->pd_window);
+        if (pcs->scene_change_flag && scs->static_config.scene_change_detection == 2)
+            pcs->scene_change_flag = scd_confirm_candidate(scs, pcs, ctx);
+        const uint32_t min_keyint = scs->static_config.scd_min_keyint
+            ? scs->static_config.scd_min_keyint
+            : (uint32_t)(1 << scs->static_config.hierarchical_levels);
+        if (pcs->picture_number - ctx->last_scd_key_poc < min_keyint) {
+            pcs->scene_change_flag = false;
+        }
 
     } else {
         pcs->scene_change_flag = false;
@@ -5403,7 +5512,8 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
                 pcs->ahd_error = calc_ahd_pd(scs, pcs, ctx);
             }
             // If the relevant frames are available, perform scene change detection
-            if (window_avail == true && queue_entry_ptr->picture_number > 0) {
+            if ((window_avail || (scs->static_config.scene_change_detection && eos_reached && pcs->pd_window[2])) &&
+                queue_entry_ptr->picture_number > 0) {
                 perform_scene_change_detection(scs, pcs, ctx);
             }
         }
@@ -5432,13 +5542,22 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
 
         release_prev_picture_from_reorder_queue(enc_ctx);
 
+        // In scene-cut mode keyint is a maximum, measured from the accepted
+        // key frame in display order, before mini-GOP assignment.
+        if (scs->static_config.scene_change_detection &&
+            scs->static_config.intra_period_length >= 0 &&
+            pcs->picture_number - ctx->last_scd_key_poc >=
+                (uint32_t)scs->static_config.intra_period_length + 1) {
+            pcs->idr_flag = true;
+        }
+
         // If the Intra period length is 0, then introduce an intra for every picture
         if (allintra) {
             pcs->idr_flag = true;
             pcs->cra_flag = false;
         }
         // If an #IntraPeriodLength has passed since the last Intra, then introduce a CRA or IDR based on Intra Refresh type
-        else if (scs->static_config.intra_period_length != -1) {
+        else if (!scs->static_config.scene_change_detection && scs->static_config.intra_period_length != -1) {
             pcs->cra_flag = (scs->static_config.intra_refresh_type != SVT_AV1_FWDKF_REFRESH) ? pcs->cra_flag
                 : ((enc_ctx->intra_period_position == (uint32_t)scs->static_config.intra_period_length) ||
                    (pcs->scene_change_flag == true))
@@ -5466,12 +5585,18 @@ EbErrorType svt_aom_picture_decision_kernel_iter(void* context) {
         }
         enc_ctx->pre_assignment_buffer_eos_flag = (pcs->end_of_sequence_flag) ? (uint32_t)true
                                                                               : enc_ctx->pre_assignment_buffer_eos_flag;
+        if (scs->static_config.scene_change_detection && pcs->idr_flag) {
+            ctx->last_scd_key_poc = pcs->picture_number;
+        }
 
         // Histogram data to be used at the next input (N + 1)
         // TODO: can this be moved to the end of perform_scene_change_detection? Histograms aren't needed if at EOS
         if (scs->calc_hist) {
             copy_histograms(pcs, ctx);
         }
+
+        if (scs->static_config.scene_change_detection == 2)
+            scd_save_previous(pcs, ctx);
 
         // Increment the Pre-Assignment Buffer Intra Count
         enc_ctx->pre_assignment_buffer_intra_count += (pcs->idr_flag || pcs->cra_flag);

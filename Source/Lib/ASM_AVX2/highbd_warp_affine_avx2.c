@@ -13,14 +13,14 @@
 #include "warped_motion.h"
 
 static INLINE __m256i load_2buffers(const uint8_t* ref8b_a, const uint8_t* ref2b_a, const uint8_t* ref8b_b,
-                                    const uint8_t* ref2b_b) {
+                                    const uint8_t* ref2b_b, int bd) {
     __m128i in_2_bit_a = _mm_loadl_epi64((__m128i*)ref2b_a);
     __m128i in_8_bit_a = _mm_loadl_epi64((__m128i*)ref8b_a);
     __m128i in_2_bit_b = _mm_loadl_epi64((__m128i*)(ref2b_b));
     __m128i in_8_bit_b = _mm_loadl_epi64((__m128i*)(ref8b_b));
 
-    __m128i out0 = _mm_srli_epi16(_mm_unpacklo_epi8(in_2_bit_a, in_8_bit_a), 6);
-    __m128i out1 = _mm_srli_epi16(_mm_unpacklo_epi8(in_2_bit_b, in_8_bit_b), 6);
+    __m128i out0 = _mm_srl_epi16(_mm_unpacklo_epi8(in_2_bit_a, in_8_bit_a), _mm_cvtsi32_si128(16 - bd));
+    __m128i out1 = _mm_srl_epi16(_mm_unpacklo_epi8(in_2_bit_b, in_8_bit_b), _mm_cvtsi32_si128(16 - bd));
 
     return _mm256_inserti128_si256(_mm256_castsi128_si256(out0), out1, 0x1);
 }
@@ -97,7 +97,7 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                     } else if (iy > height - 1) {
                         iy = height - 1;
                     }
-                    uint16_t ref = (ref8b[iy * stride8b] << 2) | ((ref2b[iy * stride2b] >> 6) & 3);
+                    uint16_t ref = (ref8b[iy * stride8b] << (bd - 8)) | ((ref2b[iy * stride2b] >> (16 - bd)) & ((1 << (bd - 8)) - 1));
                     tmp[k + 7]   = _mm256_cvtepi16_epi32(
                         _mm_set1_epi16((1 << (bd + FILTER_BITS - reduce_bits_horiz - 1)) +
                                        ref * (1 << (FILTER_BITS - reduce_bits_horiz))));
@@ -110,8 +110,8 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                     } else if (iy > height - 1) {
                         iy = height - 1;
                     }
-                    uint16_t ref = (ref8b[iy * stride8b + (width - 1)] << 2) |
-                        ((ref2b[iy * stride2b + (width - 1)] >> 6) & 3);
+                    uint16_t ref = (ref8b[iy * stride8b + (width - 1)] << (bd - 8)) |
+                        ((ref2b[iy * stride2b + (width - 1)] >> (16 - bd)) & ((1 << (bd - 8)) - 1));
                     tmp[k + 7] = _mm256_cvtepi16_epi32(
                         _mm_set1_epi16((1 << (bd + FILTER_BITS - reduce_bits_horiz - 1)) +
                                        ref * (1 << (FILTER_BITS - reduce_bits_horiz))));
@@ -130,8 +130,8 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                         int32_t sum = 1 << offset_bits_horiz;
                         for (int m = 0; m < 8; ++m) {
                             const int sample_x = clamp(ix + m, 0, width - 1);
-                            uint16_t  ref      = (ref8b[iy * stride8b + sample_x] << 2) |
-                                ((ref2b[iy * stride2b + sample_x] >> 6) & 3);
+                            uint16_t  ref      = (ref8b[iy * stride8b + sample_x] << (bd - 8)) |
+                                ((ref2b[iy * stride2b + sample_x] >> (16 - bd)) & ((1 << (bd - 8)) - 1));
                             sum += ref * coeffs[m];
                         }
                         sum                                   = ROUND_POWER_OF_TWO(sum, reduce_bits_horiz);
@@ -159,7 +159,7 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                         __m256i v_refl = load_2buffers(&ref8b[iy * stride8b + ix4 - 7],
                                                        &ref2b[iy * stride2b + ix4 - 7],
                                                        &ref8b[iy * stride8b + ix4 + 1],
-                                                       &ref2b[iy * stride2b + ix4 + 1]);
+                                                       &ref2b[iy * stride2b + ix4 + 1], bd);
                         __m256i v_ref  = _mm256_permute4x64_epi64(v_refl, 0xEE);
 
                         __m256i v_refu = _mm256_alignr_epi8(v_ref, v_refl, 2); // R8R15R14...R2R1
@@ -209,7 +209,7 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                         __m256i v_refl = load_2buffers(&ref8b[iy * stride8b + ix4 - 7],
                                                        &ref2b[iy * stride2b + ix4 - 7],
                                                        &ref8b[iy * stride8b + ix4 + 1],
-                                                       &ref2b[iy * stride2b + ix4 + 1]);
+                                                       &ref2b[iy * stride2b + ix4 + 1], bd);
                         __m256i v_ref  = _mm256_permute4x64_epi64(v_refl, 0xEE);
 
                         __m256i v_refu = _mm256_alignr_epi8(v_ref, v_refl, 2); // R8R15R14...R2R1
@@ -288,7 +288,7 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                         __m256i v_refl = load_2buffers(&ref8b[iy * stride8b + ix4 - 7],
                                                        &ref2b[iy * stride2b + ix4 - 7],
                                                        &ref8b[iy * stride8b + ix4 + 1],
-                                                       &ref2b[iy * stride2b + ix4 + 1]);
+                                                       &ref2b[iy * stride2b + ix4 + 1], bd);
 
                         __m256i v_ref = _mm256_permute4x64_epi64(v_refl, 0xEE);
 
@@ -379,7 +379,7 @@ void svt_av1_highbd_warp_affine_avx2(const int32_t* mat, const uint8_t* ref8b, c
                         __m256i v_refl = load_2buffers(&ref8b[iy * stride8b + ix4 - 7],
                                                        &ref2b[iy * stride2b + ix4 - 7],
                                                        &ref8b[iy * stride8b + ix4 + 1],
-                                                       &ref2b[iy * stride2b + ix4 + 1]);
+                                                       &ref2b[iy * stride2b + ix4 + 1], bd);
                         __m256i v_ref  = _mm256_permute4x64_epi64(v_refl, 0xEE);
 
                         __m256i v_refu = _mm256_alignr_epi8(v_ref, v_refl, 2); // R8R15R14...R2R1

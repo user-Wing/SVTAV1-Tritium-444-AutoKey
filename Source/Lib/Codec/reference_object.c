@@ -103,12 +103,12 @@ EbErrorType svt_reference_param_update(EbReferenceObject* ref_object, SequenceCo
 
     picture_buffer_desc_init_data_ptr.split_mode = false;
     if (is_16bit) {
-        picture_buffer_desc_init_data_ptr.bit_depth = EB_TEN_BIT;
+        picture_buffer_desc_init_data_ptr.bit_depth = scs->encoder_bit_depth;
     }
 
     EbPictureBufferDescInitData picture_buffer_desc_init_data_16bit_ptr = picture_buffer_desc_init_data_ptr;
     //TODO:12bit
-    if (picture_buffer_desc_init_data_ptr.bit_depth == EB_TEN_BIT) {
+    if (picture_buffer_desc_init_data_ptr.bit_depth > EB_EIGHT_BIT) {
         picture_buffer_desc_init_data_16bit_ptr.split_mode = true;
         svt_picture_buffer_desc_update(ref_object->reference_picture, (EbPtr)&picture_buffer_desc_init_data_16bit_ptr);
     } else {
@@ -137,11 +137,11 @@ EbErrorType svt_reference_object_ctor(EbReferenceObject* ref_object, EbPtr objec
 
     ref_object->dctor = svt_reference_object_dctor;
     //TODO:12bit
-    if (picture_buffer_desc_init_data_16bit_ptr.bit_depth == EB_TEN_BIT) {
+    if (picture_buffer_desc_init_data_16bit_ptr.bit_depth > EB_EIGHT_BIT) {
         // Hsan: set split_mode to 0 to construct the packed reference buffer (used @ EP)
         // Use 10bit here to use in MD
         picture_buffer_desc_init_data_16bit_ptr.split_mode = true;
-        picture_buffer_desc_init_data_16bit_ptr.bit_depth  = EB_TEN_BIT;
+        picture_buffer_desc_init_data_16bit_ptr.bit_depth  = picture_buffer_desc_init_data_ptr->bit_depth;
         EB_NEW(ref_object->reference_picture,
                svt_picture_buffer_desc_ctor,
                (EbPtr)&picture_buffer_desc_init_data_16bit_ptr);

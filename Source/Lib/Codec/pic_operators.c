@@ -479,6 +479,18 @@ void svt_aom_pad_input_picture_16bit(
 }
 
 void svt_aom_pack_2d_pic(EbPictureBufferDesc* input_picture, uint16_t* packed[3]) {
+    if (input_picture->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            for (int y = 0; y < input_picture->height; y++) {
+                memcpy(packed[p] + y * input_picture->stride[p],
+                       input_picture->input12[p] + y * input_picture->stride[p],
+                       input_picture->width * sizeof(uint16_t));
+            }
+        }
+        return;
+    }
+    const int ss_x = input_picture->color_format == EB_YUV444 ? 0 : 1;
+    const int ss_y = input_picture->color_format >= EB_YUV422 ? 0 : 1;
     svt_aom_compressed_pack_sb(input_picture->y_buffer,
                                input_picture->y_stride,
                                input_picture->y_buffer_bit_inc,
@@ -489,13 +501,13 @@ void svt_aom_pack_2d_pic(EbPictureBufferDesc* input_picture, uint16_t* packed[3]
                                input_picture->height);
 
     svt_aom_compressed_pack_sb(input_picture->u_buffer,
-                               input_picture->v_stride,
+                               input_picture->u_stride,
                                input_picture->u_buffer_bit_inc,
-                               input_picture->v_stride_bit_inc >> 2,
+                               input_picture->u_stride_bit_inc >> 2,
                                (uint16_t*)packed[1],
-                               input_picture->v_stride,
-                               input_picture->width >> 1,
-                               input_picture->height >> 1);
+                               input_picture->u_stride,
+                               input_picture->width >> ss_x,
+                               input_picture->height >> ss_y);
 
     svt_aom_compressed_pack_sb(input_picture->v_buffer,
                                input_picture->v_stride,
@@ -503,8 +515,8 @@ void svt_aom_pack_2d_pic(EbPictureBufferDesc* input_picture, uint16_t* packed[3]
                                input_picture->v_stride_bit_inc >> 2,
                                (uint16_t*)packed[2],
                                input_picture->v_stride,
-                               input_picture->width >> 1,
-                               input_picture->height >> 1);
+                               input_picture->width >> ss_x,
+                               input_picture->height >> ss_y);
 }
 
 void svt_aom_convert_pic_8bit_to_16bit(EbPictureBufferDesc* src_8bit, EbPictureBufferDesc* dst_16bit, uint16_t ss_x,
@@ -562,6 +574,15 @@ void svt_aom_copy_buffer_info(EbPictureBufferDesc* src_ptr, EbPictureBufferDesc*
 
 void svt_aom_pack_highbd_pic(const EbPictureBufferDesc* pic_ptr, uint16_t* buffer_16bit[3], uint32_t ss_x,
                              uint32_t ss_y) {
+    if (pic_ptr->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            if (!buffer_16bit[p]) continue;
+            const uint16_t* src = pic_ptr->input12[p] - pic_ptr->border * (pic_ptr->stride[p] + 1);
+            memcpy(buffer_16bit[p], src, pic_ptr->stride[p] * (pic_ptr->height + 2 * pic_ptr->border) * sizeof(uint16_t));
+        }
+        return;
+    }
+
     uint16_t width  = pic_ptr->y_stride;
     uint16_t height = (uint16_t)(pic_ptr->border * 2 + pic_ptr->height);
 
@@ -603,6 +624,18 @@ void svt_aom_pack_highbd_pic(const EbPictureBufferDesc* pic_ptr, uint16_t* buffe
 }
 
 void svt_aom_unpack_highbd_pic(uint16_t* buffer_highbd[3], EbPictureBufferDesc* pic_ptr, uint32_t ss_x, uint32_t ss_y) {
+    if (pic_ptr->bit_depth == EB_TWELVE_BIT) {
+        for (int p = 0; p < 3; p++) {
+            if (!buffer_highbd[p]) continue;
+            uint32_t count = pic_ptr->stride[p] * (pic_ptr->height + 2 * pic_ptr->border);
+            uint16_t* dst = pic_ptr->input12[p] - pic_ptr->border * (pic_ptr->stride[p] + 1);
+            uint8_t* analysis = pic_ptr->buffer[p] - pic_ptr->border * (pic_ptr->stride[p] + 1);
+            memcpy(dst, buffer_highbd[p], count * sizeof(uint16_t));
+            for (uint32_t x = 0; x < count; x++) analysis[x] = dst[x] >> 4;
+        }
+        return;
+    }
+
     uint16_t width  = pic_ptr->y_stride;
     uint16_t height = (uint16_t)(pic_ptr->border * 2 + pic_ptr->height);
 
@@ -642,4 +675,39 @@ void svt_aom_unpack_highbd_pic(uint16_t* buffer_highbd[3], EbPictureBufferDesc* 
             (width + ss_x) >> ss_x,
             (height + ss_y) >> ss_y);
     }
+}
+
+void svt_copy_input12_sb(const EbPictureBufferDesc* src, EbPictureBufferDesc* dst,
+                         uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+    for (int p = 0; p < 3; p++) {
+        const uint16_t* input = src->input12[p] + y * src->stride[p] + x;
+        uint16_t* output = (uint16_t*)dst->buffer[p];
+        for (uint32_t row = 0; row < h; row++)
+            memcpy(output + row * dst->stride[p], input + row * src->stride[p], w * sizeof(uint16_t));
+    }
+}
+
+void svt_unpack_ref_bd(uint16_t* src, uint32_t src_stride, uint8_t* dst, uint32_t dst_stride,
+                       uint8_t* low, uint32_t low_stride, uint32_t w, uint32_t h, uint8_t bd) {
+    if (bd != 12) {
+        svt_aom_un_pack2d(src, src_stride, dst, dst_stride, low, low_stride, w, h);
+        return;
+    }
+    for (uint32_t y = 0; y < h; y++) {
+        for (uint32_t x = 0; x < w; x++) {
+            uint16_t value = src[y * src_stride + x];
+            dst[y * dst_stride + x] = value >> 4;
+            if (low) low[y * low_stride + x] = (value & 15) << 4;
+        }
+    }
+}
+void svt_pack_ref_bd(uint8_t* src, uint32_t src_stride, uint8_t* low, uint32_t low_stride,
+                     uint16_t* dst, uint32_t dst_stride, uint32_t w, uint32_t h, uint8_t bd) {
+    if (bd != 12) {
+        svt_aom_pack2d_src(src, src_stride, low, low_stride, dst, dst_stride, w, h);
+        return;
+    }
+    for (uint32_t y = 0; y < h; y++)
+        for (uint32_t x = 0; x < w; x++)
+            dst[y * dst_stride + x] = (src[y * src_stride + x] << 4) | (low[y * low_stride + x] >> 4);
 }

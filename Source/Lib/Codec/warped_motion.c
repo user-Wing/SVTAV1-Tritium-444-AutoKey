@@ -770,8 +770,8 @@ void svt_av1_highbd_warp_affine_c(const int32_t* mat, const uint8_t* ref8b, cons
                     int32_t sum = 1 << offset_bits_horiz;
                     for (int m = 0; m < 8; ++m) {
                         const int sample_x = clamp(ix + m, 0, width - 1);
-                        uint16_t  ref      = (ref8b[iy * stride8b + sample_x] << 2) |
-                            ((ref2b[iy * stride2b + sample_x] >> 6) & 3);
+                        uint16_t  ref      = (ref8b[iy * stride8b + sample_x] << (bd - 8)) |
+                            ((ref2b[iy * stride2b + sample_x] >> (16 - bd)) & ((1 << (bd - 8)) - 1));
                         sum += ref * coeffs[m];
                     }
                     sum = ROUND_POWER_OF_TWO(sum, reduce_bits_horiz);

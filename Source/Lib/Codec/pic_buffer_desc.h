@@ -33,6 +33,8 @@ extern "C" {
      ************************************/
 typedef struct EbPictureBufferDesc {
     EbDctor dctor;
+    uint16_t* input12_alloc;
+    uint16_t* input12[3];
 
     // Buffer Ptrs point to the start of the picture. If there are borders, the left and above borders
     // will be accessed using a negative offset.

@@ -114,6 +114,10 @@ void svt_cfl_luma_subsampling_420_lbd_c(const uint8_t* input, // AMIR-> Changed 
                                         int32_t input_stride, int16_t* output_q3, int32_t width, int32_t height);
 void svt_cfl_luma_subsampling_420_hbd_c(const uint16_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
                                         int32_t height);
+void svt_cfl_luma_subsampling_444_lbd_c(const uint8_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
+                                        int32_t height);
+void svt_cfl_luma_subsampling_444_hbd_c(const uint16_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
+                                        int32_t height);
 void svt_subtract_average_c(int16_t* pred_buf_q3, int32_t width, int32_t height, int32_t round_offset,
                             int32_t num_pel_log2);
 

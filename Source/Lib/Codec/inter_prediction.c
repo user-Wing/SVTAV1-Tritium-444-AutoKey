@@ -1316,14 +1316,14 @@ void svt_inter_predictor_light_pd1(uint8_t* src, uint8_t* src_2b, int32_t src_st
             src_stride16 = ALIGN_POWER_OF_TWO(src_stride16, 3);
         }
 
-        svt_aom_pack_block(src - offset - (offset * src_stride),
+        svt_pack_ref_bd(src - offset - (offset * src_stride),
                            src_stride,
                            src_2b - offset - (offset * src_stride),
                            src_stride,
                            src16,
                            src_stride16,
                            w * width_scale + (offset << 1),
-                           h * height_scale + (offset << 1));
+                           h * height_scale + (offset << 1), bd);
         uint16_t* src_10b = src16 + offset + (offset * src_stride16);
         uint16_t* dst16   = (uint16_t*)dst;
 

@@ -183,7 +183,7 @@ static void reset_enc_dec(EncDecContext* ed_ctx, PictureControlSet* pcs, Sequenc
     svt_aom_lambda_assign(pcs,
                           &ed_ctx->pic_fast_lambda[EB_10_BIT_MD],
                           &ed_ctx->pic_full_lambda[EB_10_BIT_MD],
-                          EB_TEN_BIT,
+                          scs->encoder_bit_depth,
                           pcs->ppcs->frm_hdr.quantization_params.base_q_idx,
                           true);
     if (segment_index == 0) {
@@ -346,7 +346,8 @@ static bool assign_enc_dec_segments(EncDecSegments* segmentPtr, uint16_t* segmen
 }
 
 #if CONFIG_ENABLE_FILM_GRAIN
-static void svt_av1_add_film_grain(EbPictureBufferDesc* src, EbPictureBufferDesc* dst, AomFilmGrain* film_grain_ptr) {
+static void svt_av1_add_film_grain(EbPictureBufferDesc* src, EbPictureBufferDesc* dst, AomFilmGrain* film_grain_ptr,
+                                  int bit_depth) {
     uint8_t *luma, *cb, *cr;
     int32_t  height, width, luma_stride, chroma_stride;
     int32_t  use_high_bit_depth = 0;
@@ -355,25 +356,10 @@ static void svt_av1_add_film_grain(EbPictureBufferDesc* src, EbPictureBufferDesc
 
     AomFilmGrain params = *film_grain_ptr;
 
-    switch (src->bit_depth) {
-    case EB_EIGHT_BIT:
-        params.bit_depth   = 8;
-        use_high_bit_depth = 0;
-        chroma_subsamp_x   = 1;
-        chroma_subsamp_y   = 1;
-        break;
-    case EB_TEN_BIT:
-        params.bit_depth   = 10;
-        use_high_bit_depth = 1;
-        chroma_subsamp_x   = 1;
-        chroma_subsamp_y   = 1;
-        break;
-    default: //todo: Throw an error if unknown format?
-        params.bit_depth   = 10;
-        use_high_bit_depth = 1;
-        chroma_subsamp_x   = 1;
-        chroma_subsamp_y   = 1;
-    }
+    params.bit_depth   = bit_depth;
+    use_high_bit_depth = src->bit_depth > EB_EIGHT_BIT;
+    chroma_subsamp_x   = src->color_format == EB_YUV444 ? 0 : 1;
+    chroma_subsamp_y   = src->color_format >= EB_YUV422 ? 0 : 1;
 
     dst->max_width  = src->max_width;
     dst->max_height = src->max_height;
@@ -483,7 +469,7 @@ void svt_aom_recon_output(PictureControlSet* pcs, SequenceControlSet* scs) {
                 }
 
                 if (intermediate_buffer_ptr) {
-                    svt_av1_add_film_grain(recon_ptr, intermediate_buffer_ptr, film_grain_ptr);
+                    svt_av1_add_film_grain(recon_ptr, intermediate_buffer_ptr, film_grain_ptr, scs->encoder_bit_depth);
                     recon_ptr = intermediate_buffer_ptr;
                 }
             }
@@ -1141,7 +1127,7 @@ void pad_ref_and_set_flags(PictureControlSet* pcs, SequenceControlSet* scs) {
                                        (ref_pic_16bit_ptr->border + ss_y) >> ss_y);
 
         // Unpack ref samples (to be used @ MD)
-        svt_aom_un_pack2d(
+        svt_unpack_ref_bd(
             ((uint16_t*)ref_pic_16bit_ptr->y_buffer) -
                 (ref_pic_16bit_ptr->border + ref_pic_16bit_ptr->border * ref_pic_16bit_ptr->y_stride),
             ref_pic_16bit_ptr->y_stride,
@@ -1150,8 +1136,8 @@ void pad_ref_and_set_flags(PictureControlSet* pcs, SequenceControlSet* scs) {
             ref_pic_ptr->y_buffer_bit_inc - (ref_pic_ptr->border + ref_pic_ptr->border * ref_pic_ptr->y_stride_bit_inc),
             ref_pic_ptr->y_stride_bit_inc,
             ref_pic_16bit_ptr->width + (ref_pic_ptr->border << 1),
-            ref_pic_16bit_ptr->height + (ref_pic_ptr->border << 1));
-        svt_aom_un_pack2d(
+            ref_pic_16bit_ptr->height + (ref_pic_ptr->border << 1), scs->encoder_bit_depth);
+        svt_unpack_ref_bd(
             ((uint16_t*)ref_pic_16bit_ptr->u_buffer) -
                 ((ref_pic_16bit_ptr->border >> ss_x) +
                  ((ref_pic_16bit_ptr->border >> ss_y) * ref_pic_16bit_ptr->u_stride)),
@@ -1163,8 +1149,8 @@ void pad_ref_and_set_flags(PictureControlSet* pcs, SequenceControlSet* scs) {
                 ((ref_pic_ptr->border >> ss_x) + ((ref_pic_ptr->border >> ss_y) * ref_pic_ptr->u_stride_bit_inc)),
             ref_pic_ptr->u_stride_bit_inc,
             (ref_pic_16bit_ptr->width + ss_x + (ref_pic_ptr->border << 1)) >> ss_x,
-            (ref_pic_16bit_ptr->height + ss_y + (ref_pic_ptr->border << 1)) >> ss_y);
-        svt_aom_un_pack2d(
+            (ref_pic_16bit_ptr->height + ss_y + (ref_pic_ptr->border << 1)) >> ss_y, scs->encoder_bit_depth);
+        svt_unpack_ref_bd(
             ((uint16_t*)ref_pic_16bit_ptr->v_buffer) -
                 ((ref_pic_16bit_ptr->border >> ss_x) +
                  ((ref_pic_16bit_ptr->border >> ss_y) * ref_pic_16bit_ptr->v_stride)),
@@ -1176,7 +1162,7 @@ void pad_ref_and_set_flags(PictureControlSet* pcs, SequenceControlSet* scs) {
                 ((ref_pic_ptr->border >> ss_x) + ((ref_pic_ptr->border >> ss_y) * ref_pic_ptr->v_stride_bit_inc)),
             ref_pic_ptr->v_stride_bit_inc,
             (ref_pic_16bit_ptr->width + ss_x + (ref_pic_ptr->border << 1)) >> ss_x,
-            (ref_pic_16bit_ptr->height + ss_y + (ref_pic_ptr->border << 1)) >> ss_y);
+            (ref_pic_16bit_ptr->height + ss_y + (ref_pic_ptr->border << 1)) >> ss_y, scs->encoder_bit_depth);
     }
     if ((SVT_EFFECTIVE_IS_16BIT_PIPELINE(scs->is_16bit_pipeline)) && (!is_16bit)) {
         // Y samples
@@ -1261,14 +1247,21 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
     bool     is_16bit  = ctx->is_16bit;
     uint32_t sb_width  = MIN(scs->sb_size, pcs->ppcs->aligned_width - sb_org_x);
     uint32_t sb_height = MIN(scs->sb_size, pcs->ppcs->aligned_height - sb_org_y);
+    const uint8_t ss_x = scs->subsampling_x;
+    const uint8_t ss_y = scs->subsampling_y;
 
     if (is_16bit && SVT_EFFECTIVE_BIT_DEPTH(scs->static_config.encoder_bit_depth) > EB_EIGHT_BIT) {
         //SB128_TODO change 10bit SB creation
 
         const uint32_t input_luma_offset = (sb_org_y * input_pic->y_stride) + sb_org_x;
-        const uint32_t input_cb_offset   = ((sb_org_y >> 1) * input_pic->u_stride) + (sb_org_x >> 1);
-        const uint32_t input_cr_offset   = ((sb_org_y >> 1) * input_pic->v_stride) + (sb_org_x >> 1);
+        const uint32_t input_cb_offset   = ((sb_org_y >> ss_y) * input_pic->u_stride) + (sb_org_x >> ss_x);
+        const uint32_t input_cr_offset   = ((sb_org_y >> ss_y) * input_pic->v_stride) + (sb_org_x >> ss_x);
+        const uint32_t chroma_sb_width   = sb_width >> ss_x;
+        const uint32_t chroma_sb_height  = sb_height >> ss_y;
 
+        if (input_pic->bit_depth == EB_TWELVE_BIT) {
+            svt_copy_input12_sb(input_pic, ctx->input_sample16bit_buffer, sb_org_x, sb_org_y, sb_width, sb_height);
+        } else {
         //sb_width is n*8 so the 2bit-decompression kernel works properly
         uint32_t comp_stride_y           = input_pic->y_stride / 4;
         uint32_t comp_luma_buffer_offset = sb_org_x / 4 + sb_org_y * comp_stride_y;
@@ -1283,7 +1276,7 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                    sb_height);
 
         uint32_t comp_stride_uv            = input_pic->u_stride / 4;
-        uint32_t comp_chroma_buffer_offset = sb_org_x / 4 / 2 + sb_org_y / 2 * comp_stride_uv;
+        uint32_t comp_chroma_buffer_offset = (sb_org_x >> ss_x) / 4 + (sb_org_y >> ss_y) * comp_stride_uv;
 
         svt_aom_compressed_pack_sb(input_pic->u_buffer + input_cb_offset,
                                    input_pic->u_stride,
@@ -1291,17 +1284,18 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                    comp_stride_uv,
                                    (uint16_t*)ctx->input_sample16bit_buffer->u_buffer,
                                    ctx->input_sample16bit_buffer->u_stride,
-                                   sb_width / 2,
-                                   sb_height / 2);
+                                   chroma_sb_width,
+                                   chroma_sb_height);
         svt_aom_compressed_pack_sb(input_pic->v_buffer + input_cr_offset,
                                    input_pic->v_stride,
                                    input_pic->v_buffer_bit_inc + comp_chroma_buffer_offset,
                                    comp_stride_uv,
                                    (uint16_t*)ctx->input_sample16bit_buffer->v_buffer,
                                    ctx->input_sample16bit_buffer->v_stride,
-                                   sb_width / 2,
-                                   sb_height / 2);
+                                   chroma_sb_width,
+                                   chroma_sb_height);
 
+        }
         // PAD the packed source in incomplete sb up to max SB size
         svt_aom_pad_input_picture_16bit((uint16_t*)ctx->input_sample16bit_buffer->y_buffer,
                                         ctx->input_sample16bit_buffer->y_stride,
@@ -1310,21 +1304,21 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                         scs->sb_size - sb_width,
                                         scs->sb_size - sb_height);
 
-        // Safe to divide by 2 (scs->sb_size - sb_width) >> 1), with no risk of off-of-one issues
-        // from chroma subsampling as picture is already 8px aligned
+        const uint32_t chroma_pad_width  = (scs->sb_size - sb_width) >> ss_x;
+        const uint32_t chroma_pad_height = (scs->sb_size - sb_height) >> ss_y;
         svt_aom_pad_input_picture_16bit((uint16_t*)ctx->input_sample16bit_buffer->u_buffer,
                                         ctx->input_sample16bit_buffer->u_stride,
-                                        sb_width >> 1,
-                                        sb_height >> 1,
-                                        (scs->sb_size - sb_width) >> 1,
-                                        (scs->sb_size - sb_height) >> 1);
+                                        chroma_sb_width,
+                                        chroma_sb_height,
+                                        chroma_pad_width,
+                                        chroma_pad_height);
 
         svt_aom_pad_input_picture_16bit((uint16_t*)ctx->input_sample16bit_buffer->v_buffer,
                                         ctx->input_sample16bit_buffer->v_stride,
-                                        sb_width >> 1,
-                                        sb_height >> 1,
-                                        (scs->sb_size - sb_width) >> 1,
-                                        (scs->sb_size - sb_height) >> 1);
+                                        chroma_sb_width,
+                                        chroma_sb_height,
+                                        chroma_pad_width,
+                                        chroma_pad_height);
 
         if (SVT_EFFECTIVE_HBD_MD(ctx->md_ctx->hbd_md) == 0) {
             svt_aom_store16bit_input_src(
@@ -1334,8 +1328,8 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
 
     if (is_16bit && SVT_EFFECTIVE_BIT_DEPTH(scs->static_config.encoder_bit_depth) == EB_EIGHT_BIT) {
         const uint32_t input_luma_offset = ((sb_org_y)*input_pic->y_stride) + (sb_org_x);
-        const uint32_t input_cb_offset   = (((sb_org_y) >> 1) * input_pic->u_stride) + ((sb_org_x) >> 1);
-        const uint32_t input_cr_offset   = (((sb_org_y) >> 1) * input_pic->v_stride) + ((sb_org_x) >> 1);
+        const uint32_t input_cb_offset   = ((sb_org_y >> ss_y) * input_pic->u_stride) + (sb_org_x >> ss_x);
+        const uint32_t input_cr_offset   = ((sb_org_y >> ss_y) * input_pic->v_stride) + (sb_org_x >> ss_x);
 
         sb_width  = ((sb_width < MIN_SB_SIZE) || ((sb_width > MIN_SB_SIZE) && (sb_width < MAX_SB_SIZE)))
              ? MIN(scs->sb_size, (pcs->ppcs->aligned_width + scs->border) - sb_org_x)
@@ -1357,8 +1351,8 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                   input_pic->u_stride,
                                   buf_16bit,
                                   ctx->input_sample16bit_buffer->u_stride,
-                                  sb_width >> 1,
-                                  sb_height >> 1);
+                                  sb_width >> ss_x,
+                                  sb_height >> ss_y);
 
         // PACK CR
         buf_16bit = (uint16_t*)ctx->input_sample16bit_buffer->v_buffer;
@@ -1367,8 +1361,8 @@ static void prepare_input_picture(SequenceControlSet* scs, PictureControlSet* pc
                                   input_pic->v_stride,
                                   buf_16bit,
                                   ctx->input_sample16bit_buffer->v_stride,
-                                  sb_width >> 1,
-                                  sb_height >> 1);
+                                  sb_width >> ss_x,
+                                  sb_height >> ss_y);
     }
 }
 
@@ -3234,7 +3228,7 @@ EbErrorType svt_aom_mode_decision_kernel_iter(void* context) {
                        pcs->md_rate_est_ctx->wiener_restore_fac_bits,
                        2 * sizeof(int32_t));
                 pcs->ppcs->av1x->rdmult =
-                    ed_ctx->pic_full_lambda[(ed_ctx->bit_depth == EB_TEN_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD];
+                    ed_ctx->pic_full_lambda[(ed_ctx->bit_depth > EB_EIGHT_BIT) ? EB_10_BIT_MD : EB_8_BIT_MD];
                 if (pcs->ppcs->superres_total_recode_loop == 0) {
                     svt_release_object(pcs->ppcs->me_data_wrapper);
                     pcs->ppcs->me_data_wrapper = (EbObjectWrapper*)NULL;

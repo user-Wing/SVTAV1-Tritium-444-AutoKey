@@ -1,0 +1,53 @@
+diff --git a/libavcodec/libsvtav1.c b/libavcodec/libsvtav1.c
+index 0bcc176243..e22c2d241f 100644
+--- a/libavcodec/libsvtav1.c
++++ b/libavcodec/libsvtav1.c
+@@ -129,7 +129,17 @@ static int alloc_buffer(EbSvtAv1EncConfiguration *config, SvtContext *svt_enc)
+ 
+     EbSvtIOFormat *in_data;
+ 
+-    svt_enc->raw_size = luma_size * 3 / 2;
++    switch (config->encoder_color_format) {
++    case EB_YUV444:
++        svt_enc->raw_size = luma_size * 3;
++        break;
++    case EB_YUV422:
++        svt_enc->raw_size = luma_size * 2;
++        break;
++    default:
++        svt_enc->raw_size = luma_size * 3 / 2;
++        break;
++    }
+ 
+     // allocate buffer for in and out
+     svt_enc->in_buf           = av_mallocz(sizeof(*svt_enc->in_buf));
+@@ -345,6 +355,8 @@ static int config_enc_params(EbSvtAv1EncConfiguration *param,
+     handle_side_data(avctx, param);
+ 
+ #if SVT_AV1_CHECK_VERSION(0, 9, 1)
++    param->scene_change_detection = 1;
++
+     while ((en = av_dict_iterate(svt_enc->svtav1_opts, en))) {
+         EbErrorType ret = svt_av1_enc_parse_parameter(param, en->key, en->value);
+         if (ret != EB_ErrorNone) {
+@@ -416,9 +428,7 @@ static int config_enc_params(EbSvtAv1EncConfiguration *param,
+         return AVERROR(EINVAL);
+     }
+ 
+-    if ((param->encoder_color_format == EB_YUV422 || param->encoder_bit_depth > 10)
+-         && param->profile != AV_PROFILE_AV1_PROFESSIONAL ) {
+-        av_log(avctx, AV_LOG_WARNING, "Forcing Professional profile\n");
++    if (param->encoder_bit_depth > 10 || param->encoder_color_format == EB_YUV422) {
+         param->profile = AV_PROFILE_AV1_PROFESSIONAL;
+     } else if (param->encoder_color_format == EB_YUV444 && param->profile != AV_PROFILE_AV1_HIGH) {
+         av_log(avctx, AV_LOG_WARNING, "Forcing High profile\n");
+@@ -863,7 +873,8 @@ const FFCodec ff_libsvtav1_encoder = {
+     .p.capabilities = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_OTHER_THREADS,
+     .caps_internal  = FF_CODEC_CAP_NOT_INIT_THREADSAFE |
+                       FF_CODEC_CAP_AUTO_THREADS | FF_CODEC_CAP_INIT_CLEANUP,
+-    CODEC_PIXFMTS(AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV420P10),
++    CODEC_PIXFMTS(AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV420P10,
++                  AV_PIX_FMT_YUV444P10, AV_PIX_FMT_YUV444P12),
+     .color_ranges   = AVCOL_RANGE_MPEG | AVCOL_RANGE_JPEG,
+     .p.priv_class   = &class,
+     .defaults       = eb_enc_defaults,

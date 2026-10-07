@@ -393,7 +393,7 @@ void search_palette_luma(PictureControlSet* pcs, ModeDecisionContext* ctx, Palet
     EbPictureBufferDesc* src_pic = is16bit ? pcs->input_frame16bit : pcs->ppcs->enhanced_pic;
 
     const int src_stride        = src_pic->y_stride;
-    unsigned  palette_bit_depth = is16bit ? EB_TEN_BIT : EB_EIGHT_BIT;
+    unsigned  palette_bit_depth = is16bit ? ctx->encoder_bit_depth : EB_EIGHT_BIT;
 
     const uint8_t* const src = src_pic->y_buffer +
         (((ctx->blk_org_x) + (ctx->blk_org_y) * src_pic->y_stride) << is16bit);

@@ -758,8 +758,8 @@ static AOM_INLINE void update_inter_mode_stats(FRAME_CONTEXT* fc, PredictionMode
 /*******************************************************************************
  * Updates all the palette stats/CDF for the current block
  ******************************************************************************/
-static AOM_INLINE void update_palette_cdf(MacroBlockD* xd, const MbModeInfo* const mbmi, BlkStruct* blk_ptr,
-                                          const int mi_row, const int mi_col) {
+static AOM_INLINE void update_palette_cdf(PictureControlSet* pcs, MacroBlockD* xd, const MbModeInfo* const mbmi,
+                                          BlkStruct* blk_ptr, const int mi_row, const int mi_col) {
     FRAME_CONTEXT*  fc                = xd->tile_ctx;
     const BlockSize bsize             = mbmi->bsize;
     const int       palette_bsize_ctx = svt_aom_get_palette_bsize_ctx(bsize);
@@ -774,7 +774,8 @@ static AOM_INLINE void update_palette_cdf(MacroBlockD* xd, const MbModeInfo* con
         }
     }
     uint32_t  intra_chroma_mode = blk_ptr->block_mi.uv_mode;
-    const int uv_dc_pred        = intra_chroma_mode == UV_DC_PRED && is_chroma_reference(mi_row, mi_col, bsize, 1, 1);
+    const int uv_dc_pred = intra_chroma_mode == UV_DC_PRED &&
+        is_chroma_reference(mi_row, mi_col, bsize, pcs->scs->subsampling_x, pcs->scs->subsampling_y);
 
     if (uv_dc_pred) {
         const int n                   = blk_ptr->palette_size[1];
@@ -820,8 +821,8 @@ static AOM_INLINE void sum_intra_stats(PictureControlSet* pcs, BlkStruct* blk_pt
                    blk_ptr->block_mi.angle_delta[PLANE_TYPE_Y] + MAX_ANGLE_DELTA,
                    2 * MAX_ANGLE_DELTA + 1);
     }
-    uint8_t sub_sampling_x = 1; // NM - subsampling_x is harcoded to 1 for 420 chroma sampling.
-    uint8_t sub_sampling_y = 1; // NM - subsampling_y is harcoded to 1 for 420 chroma sampling.
+    const uint8_t sub_sampling_x = pcs->scs->subsampling_x;
+    const uint8_t sub_sampling_y = pcs->scs->subsampling_y;
     if (!is_chroma_reference(mi_row, mi_col, bsize, sub_sampling_x, sub_sampling_y)) {
         return;
     }
@@ -850,7 +851,7 @@ static AOM_INLINE void sum_intra_stats(PictureControlSet* pcs, BlkStruct* blk_pt
                    2 * MAX_ANGLE_DELTA + 1);
     }
     if (svt_aom_allow_palette(pcs->ppcs->frm_hdr.allow_screen_content_tools, bsize)) {
-        update_palette_cdf(xd, mbmi, blk_ptr, mi_row, mi_col);
+        update_palette_cdf(pcs, xd, mbmi, blk_ptr, mi_row, mi_col);
     }
 }
 

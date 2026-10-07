@@ -16,6 +16,7 @@
 #include "picture_operators_c.h"
 #include "definitions.h"
 #include "pic_buffer_desc.h"
+void svt_copy_input12_sb(const EbPictureBufferDesc* src, EbPictureBufferDesc* dst, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 #include "svt_log.h"
 #include "common_dsp_rtcd.h"
 #ifdef __cplusplus
@@ -159,6 +160,12 @@ static inline void svt_av1_picture_copy_cr(EbPictureBufferDesc* src, uint32_t sr
                               area_width);
     }
 }
+
+
+void svt_unpack_ref_bd(uint16_t* src, uint32_t src_stride, uint8_t* dst, uint32_t dst_stride,
+                       uint8_t* low, uint32_t low_stride, uint32_t w, uint32_t h, uint8_t bd);
+void svt_pack_ref_bd(uint8_t* src, uint32_t src_stride, uint8_t* low, uint32_t low_stride,
+                     uint16_t* dst, uint32_t dst_stride, uint32_t w, uint32_t h, uint8_t bd);
 
 #ifdef __cplusplus
 }

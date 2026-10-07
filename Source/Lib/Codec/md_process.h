@@ -993,8 +993,8 @@ typedef struct ModeDecisionContext {
     uint16_t         blk_org_y;
     uint32_t         sb_origin_x;
     uint32_t         sb_origin_y;
-    uint32_t         round_origin_x;
-    uint32_t         round_origin_y;
+    uint32_t         chroma_origin_x;
+    uint32_t         chroma_origin_y;
     bool             has_uv;
     Part             shape;
     uint8_t          hbd_md;

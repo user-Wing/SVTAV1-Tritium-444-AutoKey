@@ -127,7 +127,7 @@ static uint32_t calculate_squared_errors_sum_no_div_highbd_avx2(const uint16_t* 
     sum_128         = _mm_hadd_epi32(sum_128, sum_128);
     sum_128         = _mm_hadd_epi32(sum_128, sum_128);
 
-    return _mm_cvtsi128_si32(sum_128) >> shift_factor;
+    return (uint32_t)_mm_cvtsi128_si32(sum_128) >> shift_factor;
 }
 
 /*This function return 2 separate squared errors for two block 8xh, return value is stored in output array*/

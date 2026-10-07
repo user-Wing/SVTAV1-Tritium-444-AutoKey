@@ -363,15 +363,16 @@ static double def_kf_rd_multiplier(int qindex) {
 
 int svt_aom_compute_rd_mult_based_on_qindex(EbBitDepth bit_depth, SvtAv1FrameUpdateType update_type, int qindex) {
     int     q = svt_aom_dc_quant_qtx(qindex, 0, bit_depth);
+    const int multiplier_q = bit_depth == EB_TWELVE_BIT ? ROUND_POWER_OF_TWO(q, 2) : q;
     int64_t rdmult;
 
     // Scale rdmult based on frame type
     if (update_type == SVT_AV1_KF_UPDATE) {
-        rdmult = (int64_t)(def_kf_rd_multiplier(q) * q * q);
+        rdmult = (int64_t)(def_kf_rd_multiplier(multiplier_q) * q * q);
     } else if (update_type == SVT_AV1_GF_UPDATE || update_type == SVT_AV1_ARF_UPDATE) {
-        rdmult = (int64_t)(def_arf_rd_multiplier(q) * q * q);
+        rdmult = (int64_t)(def_arf_rd_multiplier(multiplier_q) * q * q);
     } else {
-        rdmult = (int64_t)(def_inter_rd_multiplier(q) * q * q);
+        rdmult = (int64_t)(def_inter_rd_multiplier(multiplier_q) * q * q);
     }
 
     switch (bit_depth) {
@@ -447,7 +448,12 @@ uint32_t svt_aom_compute_rd_mult(PictureControlSet* pcs, uint8_t q_index, uint8_
     // Always use q_index for the derivation of the initial rdmult (i.e. don't use me_q_index)
     int64_t rdmult = svt_aom_compute_rd_mult_based_on_qindex(bit_depth, pcs->ppcs->update_type, q_index);
 
-    return update_lambda(pcs, q_index, me_q_index, bit_depth, rdmult);
+    uint32_t lambda = update_lambda(pcs, q_index, me_q_index, bit_depth, rdmult);
+    // Favor reconstruction fidelity for native 12-bit scaled inputs at fixed CRF.
+    if (pcs->scs->encoder_bit_depth == EB_TWELVE_BIT &&
+        (pcs->ppcs->frame_resize_enabled || pcs->ppcs->frame_superres_enabled))
+        lambda = AOMMAX(lambda / 4, 1);
+    return lambda;
 }
 
 uint32_t svt_aom_compute_fast_lambda(PictureControlSet* pcs, uint8_t q_index, uint8_t me_q_index,
@@ -455,6 +461,7 @@ uint32_t svt_aom_compute_fast_lambda(PictureControlSet* pcs, uint8_t q_index, ui
     // Always use q_index for the derivation of the initial rdmult (i.e. don't use me_q_index)
 #if CONFIG_ENABLE_HIGH_BIT_DEPTH
     int64_t rdmult = bit_depth == EB_EIGHT_BIT ? av1_lambda_mode_decision8_bit_sad[q_index]
+                                               : bit_depth == EB_TWELVE_BIT ? av1lambda_mode_decision12_bit_sad[q_index]
                                                : av1lambda_mode_decision10_bit_sad[q_index];
 #else
     int64_t rdmult = av1_lambda_mode_decision8_bit_sad[q_index]; // RTC: 8-bit only
@@ -483,6 +490,10 @@ void svt_aom_lambda_assign(PictureControlSet* pcs, uint32_t* fast_lambda, uint32
     } else if (bit_depth == EB_TWELVE_BIT) {
         *full_lambda = svt_aom_compute_rd_mult(pcs, qp_index, qp_index, bit_depth);
         *fast_lambda = av1lambda_mode_decision12_bit_sad[qp_index];
+        if (multiply_lambda) {
+            *full_lambda *= 256;
+            *fast_lambda *= 16;
+        }
     }
 #endif
     else {

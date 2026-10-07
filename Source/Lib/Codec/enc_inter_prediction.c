@@ -17,6 +17,7 @@
 #include "aom_dsp_rtcd.h"
 #include "rd_cost.h"
 #include "resize.h"
+#include "pic_operators.h"
 #include "av1me.h"
 #include "sequence_control_set.h"
 #include "ac_bias.h"
@@ -120,14 +121,14 @@ static void av1_make_masked_scaled_inter_predictor(
                 src_stride16 = ALIGN_POWER_OF_TWO(src_stride16, 3);
             }
 
-            svt_aom_pack_block(src_ptr - offset - (offset * src_stride),
+            svt_pack_ref_bd(src_ptr - offset - (offset * src_stride),
                                src_stride,
                                src_ptr_2b - offset - (offset * src_stride),
                                src_stride,
                                src16,
                                src_stride16,
                                bwidth * width_scale + (offset << 1),
-                               bheight * height_scale + (offset << 1));
+                               bheight * height_scale + (offset << 1), bitdepth);
             src_ptr_10b = src16 + offset + (offset * src_stride16);
         } else {
             src_ptr_10b  = (uint16_t*)src_ptr;
@@ -449,7 +450,7 @@ static void pick_wedge(PictureControlSet* pcs, ModeDecisionContext* ctx, const B
                                       src_pic->y_stride /*src->stride*/,
                                       (uint8_t*)p0,
                                       bw,
-                                      EB_TEN_BIT);
+                                      ctx->encoder_bit_depth);
     } else
 #endif
     {
@@ -558,7 +559,7 @@ static void pick_interinter_seg(PictureControlSet* pcs, ModeDecisionContext* ctx
         DECLARE_ALIGNED(16, uint8_t, temp_mask[2 * MAX_SB_SQUARE]);
         // build mask and inverse
         if (hbd_md) {
-            svt_av1_build_compound_diffwtd_mask_highbd(temp_mask, cur_mask_type, p0, bw, p1, bw, bh, bw, EB_TEN_BIT);
+            svt_av1_build_compound_diffwtd_mask_highbd(temp_mask, cur_mask_type, p0, bw, p1, bw, bh, bw, ctx->encoder_bit_depth);
         } else {
             svt_av1_build_compound_diffwtd_mask(temp_mask, cur_mask_type, p0, bw, p1, bw, bh, bw);
         }
@@ -1428,6 +1429,7 @@ static void build_prediction_by_left_preds(uint32_t component_mask, BlockSize bs
 }
 
 struct obmc_inter_pred_ctxt {
+    uint8_t bit_depth;
     uint8_t** adjacent;
     int*      adjacent_stride;
     uint8_t*  final_dst_ptr_y;
@@ -1437,6 +1439,8 @@ struct obmc_inter_pred_ctxt {
     uint8_t*  final_dst_ptr_v;
     uint16_t  final_dst_stride_v;
     uint32_t  component_mask;
+    uint8_t   ss_x;
+    uint8_t   ss_y;
 };
 
 static INLINE void build_obmc_inter_pred_above(uint8_t is16bit, MacroBlockD* xd, int rel_mi_col, uint8_t above_mi_width,
@@ -1449,8 +1453,8 @@ static INLINE void build_obmc_inter_pred_above(uint8_t is16bit, MacroBlockD* xd,
     int       start_plane = (ctxt->component_mask & PICTURE_BUFFER_DESC_LUMA_MASK) ? 0 : 1;
     int       end_plane   = (ctxt->component_mask & PICTURE_BUFFER_DESC_CHROMA_MASK) ? 3 : 1;
     for (int plane = start_plane; plane < end_plane; ++plane) {
-        int subsampling_x = plane > 0 ? 1 : 0;
-        int subsampling_y = plane > 0 ? 1 : 0;
+        int subsampling_x = plane > 0 ? ctxt->ss_x : 0;
+        int subsampling_y = plane > 0 ? ctxt->ss_y : 0;
 
         const int bw            = (above_mi_width * MI_SIZE) >> subsampling_x;
         const int bh            = overlap >> subsampling_y;
@@ -1474,7 +1478,7 @@ static INLINE void build_obmc_inter_pred_above(uint8_t is16bit, MacroBlockD* xd,
 
         if (is16bit) {
             svt_aom_highbd_blend_a64_vmask_16bit(
-                (uint16_t*)dst, dst_stride, (uint16_t*)dst, dst_stride, (uint16_t*)tmp, tmp_stride, mask, bw, bh, 10);
+                (uint16_t*)dst, dst_stride, (uint16_t*)dst, dst_stride, (uint16_t*)tmp, tmp_stride, mask, bw, bh, ctxt->bit_depth);
         } else {
             svt_aom_blend_a64_vmask(dst, dst_stride, dst, dst_stride, tmp, tmp_stride, mask, bw, bh);
         }
@@ -1490,8 +1494,8 @@ static INLINE void build_obmc_inter_pred_left(uint8_t is16bit, MacroBlockD* xd, 
     int                          start_plane = (ctxt->component_mask & PICTURE_BUFFER_DESC_LUMA_MASK) ? 0 : 1;
     int                          end_plane   = (ctxt->component_mask & PICTURE_BUFFER_DESC_CHROMA_MASK) ? 3 : 1;
     for (int plane = start_plane; plane < end_plane; ++plane) {
-        int subsampling_x = plane > 0 ? 1 : 0;
-        int subsampling_y = plane > 0 ? 1 : 0;
+        int subsampling_x = plane > 0 ? ctxt->ss_x : 0;
+        int subsampling_y = plane > 0 ? ctxt->ss_y : 0;
 
         const int bw            = overlap >> subsampling_x;
         const int bh            = (left_mi_height * MI_SIZE) >> subsampling_y;
@@ -1515,7 +1519,7 @@ static INLINE void build_obmc_inter_pred_left(uint8_t is16bit, MacroBlockD* xd, 
 
         if (is16bit) {
             svt_aom_highbd_blend_a64_hmask_16bit(
-                (uint16_t*)dst, dst_stride, (uint16_t*)dst, dst_stride, (uint16_t*)tmp, tmp_stride, mask, bw, bh, 10);
+                (uint16_t*)dst, dst_stride, (uint16_t*)dst, dst_stride, (uint16_t*)tmp, tmp_stride, mask, bw, bh, ctxt->bit_depth);
         } else {
             svt_aom_blend_a64_hmask(dst, dst_stride, dst, dst_stride, tmp, tmp_stride, mask, bw, bh);
         }
@@ -1535,6 +1539,7 @@ static void av1_build_obmc_inter_prediction(uint8_t* final_dst_ptr_y, uint16_t f
                                             int left_stride[MAX_PLANES], uint8_t is16bit) {
     // handle above row
     struct obmc_inter_pred_ctxt ctxt_above;
+    ctxt_above.bit_depth = pcs->scs->encoder_bit_depth;
 
     ctxt_above.adjacent        = above;
     ctxt_above.adjacent_stride = above_stride;
@@ -1546,6 +1551,8 @@ static void av1_build_obmc_inter_prediction(uint8_t* final_dst_ptr_y, uint16_t f
     ctxt_above.final_dst_ptr_v    = final_dst_ptr_v;
     ctxt_above.final_dst_stride_v = final_dst_stride_v;
     ctxt_above.component_mask     = component_mask;
+    ctxt_above.ss_x               = pcs->scs->subsampling_x;
+    ctxt_above.ss_y               = pcs->scs->subsampling_y;
 
     foreach_overlappable_nb_above(is16bit,
                                   pcs->ppcs->av1_cm,
@@ -1557,6 +1564,7 @@ static void av1_build_obmc_inter_prediction(uint8_t* final_dst_ptr_y, uint16_t f
 
     // handle left column
     struct obmc_inter_pred_ctxt ctxt_left;
+    ctxt_left.bit_depth = pcs->scs->encoder_bit_depth;
 
     ctxt_left.adjacent        = left;
     ctxt_left.adjacent_stride = left_stride;
@@ -1568,6 +1576,8 @@ static void av1_build_obmc_inter_prediction(uint8_t* final_dst_ptr_y, uint16_t f
     ctxt_left.final_dst_ptr_v    = final_dst_ptr_v;
     ctxt_left.final_dst_stride_v = final_dst_stride_v;
     ctxt_left.component_mask     = component_mask;
+    ctxt_left.ss_x               = pcs->scs->subsampling_x;
+    ctxt_left.ss_y               = pcs->scs->subsampling_y;
 
     foreach_overlappable_nb_left(is16bit,
                                  pcs->ppcs->av1_cm,
@@ -2154,7 +2164,7 @@ static void interpolation_filter_search(PictureControlSet* pcs, ModeDecisionCont
                     0,
                     0,
                     PICTURE_BUFFER_DESC_LUMA_MASK,
-                    hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT,
+                    hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT,
                     0); // is_16bit_pipeline
             }
 
@@ -2167,7 +2177,7 @@ static void interpolation_filter_search(PictureControlSet* pcs, ModeDecisionCont
                             PLANE_Y,
                             &tmp_rate,
                             &tmp_dist,
-                            hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT);
+                            hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT);
 
             // Add distortion/rate cost to the signaling cost
             tmp_rd = RDCOST(full_lambda_divided, tmp_rs + tmp_rate, tmp_dist);
@@ -2224,23 +2234,28 @@ static void inter_intra_prediction(PictureControlSet* pcs, ModeDecisionContext* 
 
     uint8_t*  dst;
     int32_t   dst_stride, intra_stride;
+    const uint8_t ss_x = pcs->scs->subsampling_x;
+    const uint8_t ss_y = pcs->scs->subsampling_y;
     uint32_t  sb_size_luma   = pcs->scs->sb_size;
-    uint32_t  sb_size_chroma = pcs->scs->sb_size >> 1;
+    uint32_t  sb_size_chroma = pcs->scs->sb_size >> ss_y;
     const int bwidth         = block_size_wide[bsize];
     const int bheight        = block_size_high[bsize];
+    const BlockSize chroma_bsize = get_plane_block_size(bsize, ss_x, ss_y);
+    const int chroma_width        = block_size_wide[chroma_bsize];
 
     EbPictureBufferDesc intra_pred_desc;
+    intra_pred_desc.color_format = (EbColorFormat)pcs->scs->static_config.encoder_color_format;
     intra_pred_desc.border   = 0;
     intra_pred_desc.y_stride = bwidth;
-    intra_pred_desc.u_stride = bwidth >> 1;
-    intra_pred_desc.v_stride = bwidth >> 1;
+    intra_pred_desc.u_stride = chroma_width;
+    intra_pred_desc.v_stride = chroma_width;
     intra_pred_desc.y_buffer = intra_pred;
     intra_pred_desc.u_buffer = intra_pred;
     intra_pred_desc.v_buffer = intra_pred;
 
     for (int32_t plane = start_plane; plane < end_plane; ++plane) {
-        const int       ssx         = plane ? 1 : 0;
-        const int       ssy         = plane ? 1 : 0;
+        const int       ssx         = plane ? ss_x : 0;
+        const int       ssy         = plane ? ss_y : 0;
         const BlockSize plane_bsize = get_plane_block_size(bsize, ssx, ssy);
         const int       bwidth_uv   = block_size_wide[plane_bsize];
         const int       bheight_uv  = block_size_high[plane_bsize];
@@ -2248,8 +2263,8 @@ static void inter_intra_prediction(PictureControlSet* pcs, ModeDecisionContext* 
         uint8_t topNeighArray[(64 * 2 + 1) << 1];
         uint8_t leftNeighArray[(64 * 2 + 1) << 1];
 
-        uint32_t blk_originx_uv = ROUND_UV(pu_origin_x) >> 1;
-        uint32_t blk_originy_uv = ROUND_UV(pu_origin_y) >> 1;
+        uint32_t blk_originx_uv = ss_x ? ROUND_UV(pu_origin_x) >> 1 : pu_origin_x;
+        uint32_t blk_originy_uv = ss_y ? ROUND_UV(pu_origin_y) >> 1 : pu_origin_y;
 
         if (plane == 0) {
             dst          = pred_pic->y_buffer + ((dst_origin_x + (dst_origin_y)*pred_pic->y_stride) << is16bit);
@@ -2281,7 +2296,9 @@ static void inter_intra_prediction(PictureControlSet* pcs, ModeDecisionContext* 
 
         else if (plane == 1) {
             dst = pred_pic->u_buffer +
-                ((ROUND_UV(dst_origin_x) / 2 + ROUND_UV(dst_origin_y) / 2 * pred_pic->u_stride) << is16bit);
+                (((ss_x ? ROUND_UV(dst_origin_x) >> 1 : dst_origin_x) +
+                  (ss_y ? ROUND_UV(dst_origin_y) >> 1 : dst_origin_y) * pred_pic->u_stride)
+                 << is16bit);
             dst_stride   = pred_pic->u_stride;
             intra_stride = intra_pred_desc.u_stride;
 
@@ -2306,7 +2323,9 @@ static void inter_intra_prediction(PictureControlSet* pcs, ModeDecisionContext* 
             }
         } else {
             dst = pred_pic->v_buffer +
-                ((ROUND_UV(dst_origin_x) / 2 + ROUND_UV(dst_origin_y) / 2 * pred_pic->v_stride) << is16bit);
+                (((ss_x ? ROUND_UV(dst_origin_x) >> 1 : dst_origin_x) +
+                  (ss_y ? ROUND_UV(dst_origin_y) >> 1 : dst_origin_y) * pred_pic->v_stride)
+                 << is16bit);
             dst_stride   = pred_pic->v_stride;
             intra_stride = intra_pred_desc.v_stride;
 
@@ -2331,7 +2350,7 @@ static void inter_intra_prediction(PictureControlSet* pcs, ModeDecisionContext* 
             }
         }
         const TxSize tx_size    = tx_depth_to_tx_size[0][bsize];
-        const TxSize tx_size_uv = av1_get_max_uv_txsize(bsize, 1, 1);
+        const TxSize tx_size_uv = av1_get_max_uv_txsize(bsize, ss_x, ss_y);
 
         if (!use_precomputed_intra || plane) {
             svt_av1_predict_intra_block(blk_ptr->av1xd,
@@ -2645,14 +2664,14 @@ void svt_aom_enc_make_inter_predictor(SequenceControlSet* scs, uint8_t* src_ptr,
                     src_stride16 = ALIGN_POWER_OF_TWO(src_stride16, 3);
                 }
 
-                svt_aom_pack_block(src_mod - offset - (offset * src_stride),
+                svt_pack_ref_bd(src_mod - offset - (offset * src_stride),
                                    src_stride,
                                    src_mod_2b - offset - (offset * src_stride),
                                    src_stride,
                                    src16,
                                    src_stride16,
                                    blk_width * width_scale + (offset << 1),
-                                   blk_height * height_scale + (offset << 1));
+                                   blk_height * height_scale + (offset << 1), bit_depth);
                 src16_ptr = src16 + offset + (offset * src_stride16);
             } else {
                 src16_ptr    = (uint16_t*)src_mod;
@@ -2805,8 +2824,11 @@ static void av1_inter_prediction_light_pd1(SequenceControlSet* scs, ModeDecision
     const uint16_t   dst_origin_y = 0;
     const uint8_t    bwidth       = blk_geom->bwidth;
     const uint8_t    bheight      = blk_geom->bheight;
-    const int32_t    bit_depth    = hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT;
+    const int32_t    bit_depth    = hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT;
     const uint8_t    is_16bit     = hbd_md ? 1 : 0;
+    const uint8_t    ss_x = scs->subsampling_x;
+    const uint8_t    ss_y = scs->subsampling_y;
+    const int        uv_stride = 64 >> ss_x;
     const uint8_t    is_compound  = has_second_ref(block_mi);
     uint16_t*        tmp_dst_y    = ctx->tmp_conv_buf;
     uint8_t*         src_mod;
@@ -2864,15 +2886,15 @@ static void av1_inter_prediction_light_pd1(SequenceControlSet* scs, ModeDecision
     // Chroma prediction
     if (component_mask & PICTURE_BUFFER_DESC_CHROMA_MASK) {
         uint16_t* tmp_dst_cb = tmp_dst_y;
-        uint16_t* tmp_dst_cr = &tmp_dst_y[32 * 32];
+        uint16_t* tmp_dst_cr = &tmp_dst_y[uv_stride * (64 >> ss_y)];
         uint8_t*  dst_ptr_cb = pred_pic->u_buffer +
-            (((dst_origin_x) / 2 + (dst_origin_y) / 2 * pred_pic->u_stride) << is_16bit);
+            (((dst_origin_x >> ss_x) + (dst_origin_y >> ss_y) * pred_pic->u_stride) << is_16bit);
         uint8_t* dst_ptr_cr = pred_pic->v_buffer +
-            (((dst_origin_x) / 2 + (dst_origin_y) / 2 * pred_pic->v_stride) << is_16bit);
-        ConvolveParams conv_params_cb      = get_conv_params_no_round(0, tmp_dst_cb, 32, is_compound, bit_depth);
-        ConvolveParams conv_params_cr      = get_conv_params_no_round(0, tmp_dst_cr, 32, is_compound, bit_depth);
-        const int16_t  ref_origin_y_chroma = ref_origin_y / 2;
-        const int16_t  ref_origin_x_chroma = ref_origin_x / 2;
+            (((dst_origin_x >> ss_x) + (dst_origin_y >> ss_y) * pred_pic->v_stride) << is_16bit);
+        ConvolveParams conv_params_cb      = get_conv_params_no_round(0, tmp_dst_cb, uv_stride, is_compound, bit_depth);
+        ConvolveParams conv_params_cr      = get_conv_params_no_round(0, tmp_dst_cr, uv_stride, is_compound, bit_depth);
+        const int16_t  ref_origin_y_chroma = ref_origin_y >> ss_y;
+        const int16_t  ref_origin_x_chroma = ref_origin_x >> ss_x;
 
         for (int i = 0; i < 1 + is_compound; i++) {
             EbPictureBufferDesc* ref_pic = i ? ref_pic_1 : ref_pic_0;
@@ -2897,8 +2919,8 @@ static void av1_inter_prediction_light_pd1(SequenceControlSet* scs, ModeDecision
                                   bwidth,
                                   bheight,
                                   ctx->blk_ptr->av1xd,
-                                  1,
-                                  1,
+                                  ss_y,
+                                  ss_x,
                                   &subpel_params,
                                   &pos_y,
                                   &pos_x);
@@ -3002,13 +3024,17 @@ static void av1_inter_prediction_obmc(PictureControlSet* pcs, BlkStruct* blk_ptr
 
     uint8_t* final_dst_ptr_y    = pred_pic->y_buffer + ((dst_origin_x + (dst_origin_y)*pred_pic->y_stride) << is16bit);
     uint16_t final_dst_stride_y = pred_pic->y_stride;
+    const uint8_t ss_x = pcs->scs->subsampling_x;
+    const uint8_t ss_y = pcs->scs->subsampling_y;
+    const uint32_t dst_chroma_x = ss_x ? ROUND_UV(dst_origin_x) >> 1 : dst_origin_x;
+    const uint32_t dst_chroma_y = ss_y ? ROUND_UV(dst_origin_y) >> 1 : dst_origin_y;
 
     uint8_t* final_dst_ptr_u = pred_pic->u_buffer +
-        ((ROUND_UV(dst_origin_x) / 2 + ROUND_UV(dst_origin_y) / 2 * pred_pic->u_stride) << is16bit);
+        ((dst_chroma_x + dst_chroma_y * pred_pic->u_stride) << is16bit);
     uint16_t final_dst_stride_u = pred_pic->u_stride;
 
     uint8_t* final_dst_ptr_v = pred_pic->v_buffer +
-        ((ROUND_UV(dst_origin_x) / 2 + ROUND_UV(dst_origin_y) / 2 * pred_pic->v_stride) << is16bit);
+        ((dst_chroma_x + dst_chroma_y * pred_pic->v_stride) << is16bit);
     uint16_t final_dst_stride_v = pred_pic->v_stride;
 
     av1_build_obmc_inter_prediction(final_dst_ptr_y,
@@ -3353,19 +3379,21 @@ EbErrorType svt_aom_inter_prediction(SequenceControlSet* scs, PictureControlSet*
     // Perform chroma prediction
     if ((component_mask & PICTURE_BUFFER_DESC_CHROMA_MASK)) {
         assert(IMPLIES(ctx, ctx->has_uv));
+        const uint8_t ss_x = scs->subsampling_x;
+        const uint8_t ss_y = scs->subsampling_y;
+        const uint16_t dst_chroma_x = ss_x ? ROUND_UV(dst_origin_x) >> 1 : dst_origin_x;
+        const uint16_t dst_chroma_y = ss_y ? ROUND_UV(dst_origin_y) >> 1 : dst_origin_y;
         uint8_t* dst_ptr_cb = pred_pic->u_buffer +
-            ((ROUND_UV(dst_origin_x) / 2 + ROUND_UV(dst_origin_y) / 2 * pred_pic->u_stride) << is16bit);
+            ((dst_chroma_x + dst_chroma_y * pred_pic->u_stride) << is16bit);
         uint8_t* dst_ptr_cr = pred_pic->v_buffer +
-            ((ROUND_UV(dst_origin_x) / 2 + ROUND_UV(dst_origin_y) / 2 * pred_pic->v_stride) << is16bit);
+            ((dst_chroma_x + dst_chroma_y * pred_pic->v_stride) << is16bit);
         ConvolveParams  conv_params_cb     = get_conv_params_no_round(0, tmp_dst_cb, 64, is_compound, bit_depth);
         ConvolveParams  conv_params_cr     = get_conv_params_no_round(0, tmp_dst_cr, 64, is_compound, bit_depth);
-        const uint8_t   ss_x               = 1; // pd->subsampling_x;
-        const uint8_t   ss_y               = 1; //pd->subsampling_y;
         const BlockSize bsize_uv           = get_plane_block_size(bsize, ss_x, ss_y);
         const int       bwidth_uv          = block_size_wide[bsize_uv];
         const int       bheight_uv         = block_size_high[bsize_uv];
-        const int16_t   pu_origin_y_chroma = ROUND_UV(ref_origin_y) / 2;
-        const int16_t   pu_origin_x_chroma = ROUND_UV(ref_origin_x) / 2;
+        const int16_t   pu_origin_y_chroma = ss_y ? ROUND_UV(ref_origin_y) >> 1 : ref_origin_y;
+        const int16_t   pu_origin_x_chroma = ss_x ? ROUND_UV(ref_origin_x) >> 1 : ref_origin_x;
         uint8_t         sub8x8_inter       = 0;
 
         // special treatment for chroma in 4XN/NX4 blocks if one of the neighbour blocks of the parent square is
@@ -3616,7 +3644,7 @@ bool svt_aom_calc_pred_masked_compound(PictureControlSet* pcs, ModeDecisionConte
                                  0, //output org_x,
                                  0, //output org_y,
                                  PICTURE_BUFFER_DESC_LUMA_MASK,
-                                 hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT,
+                                 hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT,
                                  0); // is_16bit_pipeline
     }
 
@@ -3672,7 +3700,7 @@ bool svt_aom_calc_pred_masked_compound(PictureControlSet* pcs, ModeDecisionConte
                                  0, //output org_x,
                                  0, //output org_y,
                                  PICTURE_BUFFER_DESC_LUMA_MASK,
-                                 hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT,
+                                 hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT,
                                  0); // is_16bit_pipeline
     }
 
@@ -3702,7 +3730,7 @@ bool svt_aom_calc_pred_masked_compound(PictureControlSet* pcs, ModeDecisionConte
                                       src_pic->y_stride,
                                       (uint8_t*)ctx->pred1,
                                       bwidth,
-                                      EB_TEN_BIT);
+                                      ctx->encoder_bit_depth);
         svt_aom_highbd_subtract_block(bheight,
                                       bwidth,
                                       ctx->diff10,
@@ -3711,7 +3739,7 @@ bool svt_aom_calc_pred_masked_compound(PictureControlSet* pcs, ModeDecisionConte
                                       bwidth,
                                       (uint8_t*)ctx->pred0,
                                       bwidth,
-                                      EB_TEN_BIT);
+                                      ctx->encoder_bit_depth);
     } else
 #endif
     {
@@ -3883,7 +3911,7 @@ EbErrorType svt_aom_inter_pu_prediction_av1(uint8_t hbd_md, ModeDecisionContext*
                              0,
                              0,
                              component_mask,
-                             hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT,
+                             hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT,
                              0); // is_16bit_pipeline
     return EB_ErrorNone;
 }
@@ -3908,7 +3936,7 @@ EbErrorType svt_aom_inter_pu_prediction_av1_obmc(uint8_t hbd_md, ModeDecisionCon
         0,
         0,
         component_mask,
-        hbd_md ? EB_TEN_BIT : EB_EIGHT_BIT,
+        hbd_md ? ctx->encoder_bit_depth : EB_EIGHT_BIT,
         0); // is_16bit_pipeline
 #else
     UNUSED(hbd_md);

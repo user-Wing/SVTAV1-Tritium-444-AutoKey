@@ -444,6 +444,26 @@ void svt_cfl_luma_subsampling_420_hbd_c(const uint16_t* input, int32_t input_str
     }
 }
 
+/* 4:4:4 CfL keeps luma at full chroma resolution. CfL stores luma AC in Q3,
+ * so each sample is copied with an x8 scale instead of applying 4:2:0 averaging. */
+void svt_cfl_luma_subsampling_444_lbd_c(const uint8_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
+                                        int32_t height) {
+    for (int32_t j = 0; j < height; ++j, input += input_stride, output_q3 += CFL_BUF_LINE) {
+        for (int32_t i = 0; i < width; ++i) {
+            output_q3[i] = (int16_t)input[i] << 3;
+        }
+    }
+}
+
+void svt_cfl_luma_subsampling_444_hbd_c(const uint16_t* input, int32_t input_stride, int16_t* output_q3, int32_t width,
+                                        int32_t height) {
+    for (int32_t j = 0; j < height; ++j, input += input_stride, output_q3 += CFL_BUF_LINE) {
+        for (int32_t i = 0; i < width; ++i) {
+            output_q3[i] = (int16_t)(input[i] << 3);
+        }
+    }
+}
+
 /************************************************************************************************
 * svt_subtract_average_c
 * Calculate the DC value by averaging over all sample. Subtract DC value to get AC values In C
@@ -2444,11 +2464,11 @@ void svt_aom_highbd_dr_predictor(uint16_t* dst, ptrdiff_t stride, TxSize tx_size
     assert(angle > 0 && angle < 270);
 
     if (angle > 0 && angle < 90) {
-        svt_av1_highbd_dr_prediction_z1(dst, stride, bw, bh, above, left, upsample_above, dx, dy, bd);
+        (bd == 12 ? svt_av1_highbd_dr_prediction_z1_c : svt_av1_highbd_dr_prediction_z1)(dst, stride, bw, bh, above, left, upsample_above, dx, dy, bd);
     } else if (angle > 90 && angle < 180) {
-        svt_av1_highbd_dr_prediction_z2(dst, stride, bw, bh, above, left, upsample_above, upsample_left, dx, dy, bd);
+        (bd == 12 ? svt_av1_highbd_dr_prediction_z2_c : svt_av1_highbd_dr_prediction_z2)(dst, stride, bw, bh, above, left, upsample_above, upsample_left, dx, dy, bd);
     } else if (angle > 180 && angle < 270) {
-        svt_av1_highbd_dr_prediction_z3(dst, stride, bw, bh, above, left, upsample_left, dx, dy, bd);
+        (bd == 12 ? svt_av1_highbd_dr_prediction_z3_c : svt_av1_highbd_dr_prediction_z3)(dst, stride, bw, bh, above, left, upsample_left, dx, dy, bd);
     } else if (angle == 90) {
         svt_aom_pred_high[V_PRED][tx_size](dst, stride, above, left, bd);
     } else if (angle == 180) {

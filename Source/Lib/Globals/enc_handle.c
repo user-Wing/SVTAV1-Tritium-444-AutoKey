@@ -1294,7 +1294,7 @@ static int create_ref_buf_descs(EbEncHandle* enc_handle_ptr) {
 
     ref_pic_buf_desc_init_data.split_mode = false;
     if (is_16bit) {
-        ref_pic_buf_desc_init_data.bit_depth = EB_TEN_BIT;
+        ref_pic_buf_desc_init_data.bit_depth = scs->encoder_bit_depth;
     }
 
     eb_ref_obj_ect_desc_init_data_structure.reference_picture_desc_init_data = ref_pic_buf_desc_init_data;
@@ -1387,7 +1387,7 @@ EB_API EbErrorType svt_av1_enc_init(EbComponentType* svt_enc_component) {
 
     // Per-instance block geometry table allocation
     EB_MALLOC_ARRAY(scs->blk_geom_mds, scs->max_block_cnt);
-    svt_aom_build_blk_geom(scs->svt_aom_geom_idx, scs->blk_geom_mds);
+    svt_aom_build_blk_geom(scs->svt_aom_geom_idx, scs->blk_geom_mds, scs->subsampling_x, scs->subsampling_y);
     /************************************
      * Sequence Control Set
      ************************************/
@@ -4296,7 +4296,7 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
     }
 
     // Throws a warning when scene change is on, as the feature is not optimal and may produce false detections
-    if (scs->static_config.scene_change_detection == 1) {
+    if (scs->static_config.scene_change_detection != 0) {
         SVT_WARN("Scene Change is not optimal and may produce suboptimal keyframe placements\n");
     }
     set_mrp_ctrl(scs, &scs->mrp_ctrls, scs->static_config.enc_mode);
@@ -4305,7 +4305,7 @@ static void set_param_based_on_input(SequenceControlSet* scs) {
     scs->mrp_ctrls_init = scs->mrp_ctrls;
     // set to 1 if multipass and less than 200 frames in resourcecordination
     scs->is_short_clip = scs->static_config.gop_constraint_rc ? 1 : 0;
-    if (allintra || scs->static_config.aq_mode == 1 || scs->static_config.scene_change_detection == 1 ||
+    if (allintra || scs->static_config.aq_mode == 1 || scs->static_config.scene_change_detection != 0 ||
         scs->vq_ctrls.sharpness_ctrls.tf == 1 || scs->static_config.enable_variance_boost || scs->static_config.rtc) {
         scs->calculate_variance = 1;
     } else {
@@ -4479,7 +4479,8 @@ static void copy_api_from_app(SequenceControlSet* scs, EbSvtAv1EncConfiguration*
     }
 
     // Rate Control
-    scs->static_config.scene_change_detection = config_struct->scene_change_detection;
+    scs->static_config.scene_change_detection = scs->allintra ? 0 : config_struct->scene_change_detection;
+    scs->static_config.scd_min_keyint          = config_struct->scd_min_keyint;
     if (config_struct->lossless && config_struct->rate_control_mode) {
         scs->static_config.rate_control_mode = SVT_AV1_RC_MODE_CQP_OR_CRF;
         SVT_WARN("Switched to CQP mode since lossless coding is enabled\n");
@@ -5226,6 +5227,19 @@ static EbErrorType copy_frame_buffer(SequenceControlSet* scs, uint8_t* destinati
             input_ptr->cb, input_ptr->cb_stride, input_pic->u_buffer, input_pic->u_stride, chroma_height, chroma_width);
         svt_av1_copy_wxh_8bit(
             input_ptr->cr, input_ptr->cr_stride, input_pic->v_buffer, input_pic->v_stride, chroma_height, chroma_width);
+    } else if (scs->encoder_bit_depth == EB_TWELVE_BIT) {
+        uint8_t* analysis[3] = {y8b_input_picture_ptr->y_buffer, input_pic->u_buffer, input_pic->v_buffer};
+        uint16_t* source[3] = {(uint16_t*)input_ptr->luma, (uint16_t*)input_ptr->cb, (uint16_t*)input_ptr->cr};
+        uint32_t source_stride[3] = {input_ptr->y_stride, input_ptr->cb_stride, input_ptr->cr_stride};
+        for (int p = 0; p < 3; p++) {
+            uint32_t w = p ? chroma_width : luma_width;
+            uint32_t h = p ? chroma_height : luma_height;
+            for (uint32_t y = 0; y < h; y++) {
+                memcpy(input_pic->input12[p] + y * input_pic->stride[p], source[p] + y * source_stride[p], w * sizeof(uint16_t));
+                for (uint32_t x = 0; x < w; x++)
+                    analysis[p][y * input_pic->stride[p] + x] = source[p][y * source_stride[p] + x] >> 4;
+            }
+        }
     } else { // 10bit packed
         uint32_t comp_stride_y = input_pic->y_stride / 4;
 

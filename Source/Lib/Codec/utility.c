@@ -226,7 +226,7 @@ static const uint32_t d1_depth_offset[GEOM_TOT][6] = {{1, 1, 1, 1, 1, NOT_USED_V
 
 static void md_scan_all_blks(GeomIndex geom, BlockGeom* blk_geom, uint32_t* idx_mds, uint32_t sq_size, uint32_t x,
                              uint32_t y, uint8_t min_nsq_bsize, uint32_t max_sb, uint32_t max_depth,
-                             uint32_t max_part) {
+                             uint32_t max_part, uint16_t ss_x, uint16_t ss_y) {
     //the input block is the parent square block of size sq_size located at pos (x,y)
     uint32_t part_it, nsq_it;
 
@@ -265,10 +265,10 @@ static void md_scan_all_blks(GeomIndex geom, BlockGeom* blk_geom, uint32_t* idx_
             blk_geom[*idx_mds].bheight         = quartsize * ns_quarter_size_mult[part_it_idx][1][nsq_it];
             blk_geom[*idx_mds].bsize =
                 hvsize_to_bsize[svt_log2f(blk_geom[*idx_mds].bwidth) - 2][svt_log2f(blk_geom[*idx_mds].bheight) - 2];
-            blk_geom[*idx_mds].bwidth_uv  = MAX(4, blk_geom[*idx_mds].bwidth >> 1);
-            blk_geom[*idx_mds].bheight_uv = MAX(4, blk_geom[*idx_mds].bheight >> 1);
+            blk_geom[*idx_mds].bwidth_uv  = MAX(4, blk_geom[*idx_mds].bwidth >> ss_x);
+            blk_geom[*idx_mds].bheight_uv = MAX(4, blk_geom[*idx_mds].bheight >> ss_y);
 
-            blk_geom[*idx_mds].bsize_uv = get_plane_block_size(blk_geom[*idx_mds].bsize, 1, 1);
+            blk_geom[*idx_mds].bsize_uv = get_plane_block_size(blk_geom[*idx_mds].bsize, ss_x, ss_y);
 #if _DEBUG
             blk_geom[*idx_mds].mds_idx = (*idx_mds);
 #endif
@@ -278,13 +278,13 @@ static void md_scan_all_blks(GeomIndex geom, BlockGeom* blk_geom, uint32_t* idx_
 
     uint32_t min_size = max_sb >> (max_depth - 1);
     if (halfsize >= min_size) {
-        md_scan_all_blks(geom, blk_geom, idx_mds, halfsize, x, y, min_nsq_bsize, max_sb, max_depth, max_part);
+        md_scan_all_blks(geom, blk_geom, idx_mds, halfsize, x, y, min_nsq_bsize, max_sb, max_depth, max_part, ss_x, ss_y);
         md_scan_all_blks(
-            geom, blk_geom, idx_mds, halfsize, x + halfsize, y, min_nsq_bsize, max_sb, max_depth, max_part);
+            geom, blk_geom, idx_mds, halfsize, x + halfsize, y, min_nsq_bsize, max_sb, max_depth, max_part, ss_x, ss_y);
         md_scan_all_blks(
-            geom, blk_geom, idx_mds, halfsize, x, y + halfsize, min_nsq_bsize, max_sb, max_depth, max_part);
+            geom, blk_geom, idx_mds, halfsize, x, y + halfsize, min_nsq_bsize, max_sb, max_depth, max_part, ss_x, ss_y);
         md_scan_all_blks(
-            geom, blk_geom, idx_mds, halfsize, x + halfsize, y + halfsize, min_nsq_bsize, max_sb, max_depth, max_part);
+            geom, blk_geom, idx_mds, halfsize, x + halfsize, y + halfsize, min_nsq_bsize, max_sb, max_depth, max_part, ss_x, ss_y);
     }
 }
 
@@ -329,7 +329,7 @@ static uint32_t count_total_num_of_active_blks(uint8_t min_nsq_bsize, uint32_t m
 /*
   Build Block Geometry
 */
-void svt_aom_build_blk_geom(GeomIndex geom, BlockGeom* blk_geom) {
+void svt_aom_build_blk_geom(GeomIndex geom, BlockGeom* blk_geom, uint16_t ss_x, uint16_t ss_y) {
     uint32_t max_sb;
     uint32_t max_depth;
     uint32_t max_part;
@@ -409,7 +409,7 @@ void svt_aom_build_blk_geom(GeomIndex geom, BlockGeom* blk_geom) {
     }
     //(2) Construct md scan blk_geom_mds:  use info from dps
     uint32_t idx_mds = 0;
-    md_scan_all_blks(geom, blk_geom, &idx_mds, max_sb, 0, 0, min_nsq_bsize, max_sb, max_depth, max_part);
+    md_scan_all_blks(geom, blk_geom, &idx_mds, max_sb, 0, 0, min_nsq_bsize, max_sb, max_depth, max_part, ss_x, ss_y);
 }
 
 #if FIXED_POINT_ASSERT_TEST
